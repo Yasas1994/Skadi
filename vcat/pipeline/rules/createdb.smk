@@ -10,8 +10,11 @@ rule all:
         f"{DBDIR}/VMR_latest/virus_protein.accession2taxid",
         f"{DBDIR}/VMR_latest/proteins.faa",
         f"{DBDIR}/VMR_latest/genomes.fna",
+        f"{DBDIR}/VMR_latest/genome2protein",
+        f"{DBDIR}/VMR_latest/gff",
         f"{DBDIR}/VMR_latest/bbmap_index/index_done",
         f"{DBDIR}/VMR_latest/mmseqs_proteins/mmseqs_proteins",
+        f"{DBDIR}/VMR_latest/diamond_proteins/diamond_proteins.dmnd",
         f"{DBDIR}/VMR_latest/mmseqs_genomes/mmseqs_genomes",
         f"{DBDIR}/VMR_latest/blast_genomes/blast_genomes",
         f"{DBDIR}/VMR_latest/mmseqs_pprofiles/mmseqs_pprofiles",
@@ -22,15 +25,43 @@ rule download_genbank:
     input:
         f"{DBDIR}/ictv.xlsx"
     output:
-        directory(f"{DBDIR}/VMR_latest/tmp"),
-        f"{DBDIR}/VMR_latest/tmp/download_complete"
+        outdir = directory(f"{DBDIR}/VMR_latest/tmp"),
+        stamp = f"{DBDIR}/VMR_latest/tmp/download_complete"
     log:
         f"{DBDIR}/logs/download_genbank.log"
     shell:
         """
-        download_gb.py -i {input} -o {output} &> {log}
+        download_gb.py -i {input} -o {output.outdir} &> {log}
+        """
+# generate gff files
+rule generate_gff:
+    input:
+        gb_dir=f"{DBDIR}/VMR_latest/tmp"
+    output:
+        gff_dir=directory(f"{DBDIR}/VMR_latest/gff")
+    log:
+        f"{DBDIR}/logs/generate_gff.log"
+    shell:
+        r"""
+        mkdir -p {output.gff_dir}
+        for i in {input.gb_dir}/*.gb; do
+            [ -e "$i" ] || continue
+            gb2gff.py "$i" {output.gff_dir}
+        done > {log} 2>&1
         """
 
+# generate genome to protein map
+rule generate_genome2protein:
+    input:
+        gb_dir=directory(f"{DBDIR}/VMR_latest/tmp")
+    output:
+        map=f"{DBDIR}/VMR_latest/genome2protein"
+    log:
+        f"{DBDIR}/logs/generate_genome2protein.log"
+    shell:
+        r"""
+        genome_to_protein_map.py {input.gb_dir}/ -o {output.map} > {log} 2>&1
+        """
 # preprocess and prepare .gb files to build mmseqs datasets
 rule prepare:
     input:
@@ -72,6 +103,23 @@ rule make_mmseqs_proteindb:
         mmseqs createdb --dbtype 1 {input.seqs} {output}  &> {log}
         mmseqs createtaxdb {output} {params.tmp} --ncbi-tax-dump {params.taxdump} --tax-mapping-file {input.taxmap}  &>> {log}
         mmseqs nrtotaxmapping {input.taxmap} {output} {params.taxmap}  &>> {log}
+        """
+
+rule make_diamond_proteindb:
+    input:
+        seqs=f"{DBDIR}/VMR_latest/proteins.faa",
+        taxmap=f"{DBDIR}/VMR_latest/virus_protein.accession2taxid"
+    output:
+        f"{DBDIR}/VMR_latest/diamond_proteins/diamond_proteins.dmnd"
+    log:
+        f"{DBDIR}/logs/make_diamond_proteindb.log"
+    params:
+        tmp=f"{DBDIR}/tmp/pdb",
+        taxnodes=f"{DBDIR}/ictv-taxdump/nodes.dmp",
+        taxnames=f"{DBDIR}/ictv-taxdump/names.dmp"
+    shell:
+        """
+        diamond makedb --in {input.seqs} --db {output} --taxonmap {input.taxmap} --taxonnames {params.taxnames} --taxonnodes {params.taxnodes} > {log}
         """
 
 rule make_mmseqs_genomedb:
