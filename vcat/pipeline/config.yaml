@@ -1,16 +1,16 @@
 database_dir:
 downloads:
 - latest: true
+  link: https://ckan.fdm.uni-greifswald.de/dataset/3536d6fc-8cd5-492d-964c-60f0806545d1/resource/fe5cbbe0-678e-42a4-930f-59f3c237f406/download/msl41v1.tar.gz
+  name: msl41v1
+- latest: false
   link: https://ckan.fdm.uni-greifswald.de/dataset/3536d6fc-8cd5-492d-964c-60f0806545d1/resource/5215c48e-a4ec-4c98-ac80-7411c992a3b4/download/msl40v2.tar.gz
   name: msl40v2
-- latest: false
-  link: https://ckan.fdm.uni-greifswald.de/dataset/3536d6fc-8cd5-492d-964c-60f0806545d1/resource/8e435a71-9c42-4418-8161-e5d834b67e90/download/msl40v1.tar.gz
-  name: msl40v1
 - latest: false
   link: https://ckan.fdm.uni-greifswald.de/dataset/3536d6fc-8cd5-492d-964c-60f0806545d1/resource/42382812-1545-4933-a7e6-69c856017047/download/msl39v4.tar.gz
   name: msl39v4
 ictv_url: https://ictv.global/vmr/current?fid=15873#block-teamplus-page-title
-sheet: 1
+sheet: 2
 thresholds:
   tanis: 0.81
   tanig: 0.49
