@@ -18,7 +18,8 @@ os.makedirs(TMPDIR, exist_ok=True)
 
 # Database / reference paths
 REF_GENOMES = f"{DBDIR}/VMR_latest/genomes.fna"
-
+REF_GFF_PATH = f"{DBDIR}/VMR_latest/gff/"
+PROTEIN_2_GENOME = f"{DBDIR}/VMR_latest/genome2protein"
 
 
 def tool_args(key):
@@ -79,9 +80,12 @@ def bbmap_in_params():
 rule all:
     input:
         f"{OUTDIR}/{SAMPLE}.sorted.bam",
+        f"{TMPDIR}/{SAMPLE}.fasta",
         f"{OUTDIR}/{SAMPLE}.sorted.bam.bai",
         f"{OUTDIR}/{SAMPLE}.pileup.tsv",
-        f"{OUTDIR}/{SAMPLE}.vcat.tsv"
+        f"{OUTDIR}/{SAMPLE}.diamond.m8",
+        f"{OUTDIR}/{SAMPLE}.vcat_nuc.tsv",
+        f"{OUTDIR}/{SAMPLE}.vcat_protein.tsv"
 
 
 rule map_reads:
@@ -98,6 +102,49 @@ rule map_reads:
         r"""
         bbmap.sh ref={input.ref} {params.bbmap_in} out={output.sam} path={params.bbmap_index_path} {params.bbmap_args}
         """
+
+rule merge_reads:
+    input:
+        in1=R1,
+        in2=R2
+    output:
+        temp(f"{TMPDIR}/{{sample}}.fasta")
+    shell:
+        r"""
+        seqkit fq2fa {input.in1} {input.in2} > {output}
+        """
+        
+rule map_reads_to_proteins:
+    input:
+        input_fasta=f"{TMPDIR}/{{sample}}.fasta",
+    output:
+        m8=f"{OUTDIR}/{{sample}}.diamond.m8"
+    params:
+        db=f"{DBDIR}/VMR_latest/diamond_proteins/diamond_proteins.dmnd",
+        diamond_args=lambda wc: (config.get("diamond_args") or " "), # None or " "
+    threads: int(workflow.cores * 0.75)
+    shell:
+        r"""
+        diamond blastx --query {input.input_fasta} --out {output.m8} --threads {threads} --db {params.db} \
+        --outfmt 6 qseqid sseqid pident length mismatch gapopen qstart qend sstart send evalue bitscore staxids slineages {params.diamond_args}
+        """
+
+rule summarize_protein_mapping:
+    input:
+        m8=f"{OUTDIR}/{{sample}}.diamond.m8",
+    output:
+        tsv=f"{OUTDIR}/{{sample}}.vcat_protein.tsv"
+    threads: int(workflow.cores * 0.75)
+    params:
+        ref_gff_path=REF_GFF_PATH,
+        genome2protein=PROTEIN_2_GENOME
+
+    shell:
+        r"""
+         protein_read_mappig_summary.py --blast-columns qseqid,sseqid,pident,length,mismatch,gapopen,qstart,qend,sstart,send,evalue,bitscore,staxids,slineages \
+         --min-avg-aa-identity-weighted 0.5 \
+         --min-virus-protein-coverage 0.2 \
+         --protein-attr genome_id,protein_id {input.m8} {params.genome2protein} {params.ref_gff_path} {output.tsv}"""
 
 
 rule sort_bam:
@@ -137,11 +184,11 @@ rule pileup:
           {params.pileup_args}
         """
 
-rule summarize:
+rule summarize_nuc_mapping:
     input:
         tsv=f"{OUTDIR}/{{sample}}.pileup.tsv"
     output:
-        tsv=f"{OUTDIR}/{{sample}}.vcat.tsv"
+        tsv=f"{OUTDIR}/{{sample}}.vcat_nuc.tsv"
     params:
         database_dir = DBDIR,
         summary_args=lambda wc: tool_args("summary_args")
