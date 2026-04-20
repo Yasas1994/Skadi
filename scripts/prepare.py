@@ -3,6 +3,7 @@
 author: Yasas Wijesekara (yasas.wijesekara@uni-greifswald.de)
 
 Prepares the genome and protein sequence files for MMseqs database creation.
+This script needs refractoring!
 """
 
 import re
@@ -38,6 +39,26 @@ def extract_from_hyperlink(hypstr):
     display_text = text_match.group(1) if text_match else None
     return {"url": f"{url}", "display_text": f"{display_text}"}
 
+def extract_species_name(text: str) -> str | None:
+    """
+    Extract species name from an Excel-style HYPERLINK formula like:
+    =HYPERLINK("https://ictv.global/taxonomy/taxondetails?taxnode_id=202308643","Alphalipothrixvirus beppuense")
+
+    If the hyperlink pattern is not found, return the input text stripped,
+    assuming it already contains the species name.
+    """
+    if text is None:
+        return None
+
+    text = text.strip()
+
+    pattern = r'^=HYPERLINK\(".*?","(.*?)"\)$'
+    match = re.match(pattern, text)
+
+    if match:
+        return match.group(1).strip()
+
+    return text if text else None
 
 @click.command(context_settings=dict(show_default=True, help_option_names=["-h", "--help"]))
 @click.option(
@@ -89,7 +110,7 @@ def main(database_dir: Path, xltable: Path, gbdir: Path, seqdir: Path) -> None:
 
     ictv = ictv[ictv["Accessions Link"].notna()]
 
-    ictv["Taxid"] = ictv["Species"].apply(lambda x: taxopy.taxid_from_name(x, taxdb)[0])
+    ictv["Taxid"] = ictv["Species"].apply(lambda x: taxopy.taxid_from_name(extract_species_name(x), taxdb)[0])
     ictv["IDS"] = ictv.apply(
         lambda x: extract_from_hyperlink(x["Accessions Link"])["url"].split("/")[-1].split(","),
         axis=1,
@@ -144,7 +165,7 @@ def main(database_dir: Path, xltable: Path, gbdir: Path, seqdir: Path) -> None:
                             protein_seq = qualifier.value.strip('"').rstrip('"')
 
                     start, end = list(map(int, re.findall(r"(\d+)\D+(\d+)", feature.location)[0]))
-                    if min(feature_range[0], start) == feature_range[0] and max(feature_range[1], end) == feature_range[1]:
+                    if (min(feature_range[0], start) == feature_range[0] and max(feature_range[1], end) == feature_range[1]) and len(protein_seq) > 0:
                         proteins.append(
                             SeqRecord(
                                 Seq(protein_seq),
@@ -187,7 +208,7 @@ def main(database_dir: Path, xltable: Path, gbdir: Path, seqdir: Path) -> None:
                                 protein_seq = qualifier.value.strip('"').rstrip('"')
 
                         start, end = list(map(int, re.findall(r"(\d+)\D+(\d+)", feature.location)[0]))
-                        if min(feature_range[0], start) == feature_range[0] and max(feature_range[1], end) == feature_range[1]:
+                        if (min(feature_range[0], start) == feature_range[0] and max(feature_range[1], end) == feature_range[1]) and len(protein_seq) > 0:
                             fh2.write(
                                 f"{protein_id.split('.')[0]}\t{protein_id}\t{id2newtax[record.accession[0]]}\t-\n"
                             )

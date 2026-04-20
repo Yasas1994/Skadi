@@ -14,9 +14,9 @@ import click
 
 from vcat.color_logger import logger
 
-
+# https://www.ncbi.nlm.nih.gov/nuccore/PP467602
 NCBI_EFETCH_URL = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi"
-NCBI_LINK_PATTERN = r"https://www\.ncbi\.nlm\.nih\.gov/nuccore/.+"
+NCBI_LINK_PATTERN = r'nuccore/([^"]+)'
 
 
 @click.command(context_settings=dict(show_default=True))
@@ -61,6 +61,7 @@ def main(infile: Path, outdir: Path, batch_size: int) -> None:
     id_list_path = outdir / "ID.list"
     with open(id_list_path, "w") as fh:
         for row in range(2, ws.max_row + 1):
+            
             names = ws.cell(row=row, column=headers.index(virus_names) + 1)
             name_val = "" if names.value is None else str(names.value)
 
@@ -72,20 +73,21 @@ def main(infile: Path, outdir: Path, batch_size: int) -> None:
             if not cell.value:
                 continue
 
-            # Extract URL inside quotes
-            try:
-                link = name_val.split('"')[1]
-            except IndexError:
+            m = re.search(NCBI_LINK_PATTERN, cell.value)
+            if m:
+                ids = m.group(1)
+            else:
                 continue
 
-            if not re.search(NCBI_LINK_PATTERN, link):
-                continue
-
-            ids = link.split("/")[-1]
             fh.write(ids + "\n")
-            all_ids.extend(ids.split("(")[0].split(","))
+            all_ids.extend(ids.split(","))
 
-    logger.info("Found %d accessions. Downloading from NCBI…", len(all_ids))
+    if len(all_ids) > 0:
+        logger.info("Found %d accessions. Downloading from NCBI…", len(all_ids))
+    
+    else:
+        logger.info(f"Found {len(all_ids)} accessions. This is peculiar. Check the input file: {infile} ")
+        exit(1)
 
     for i in range(0, len(all_ids), batch_size):
         params = {
