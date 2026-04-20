@@ -383,6 +383,13 @@ def contigs(input, output, database, jobs, batch, snakemake_args, **kwargs):
     required=True,
 )
 @click.option(
+    "-d",
+    "--database",
+    type=click.Path(dir_okay=True, writable=True, resolve_path=True),
+    help="dir to vcat database",
+    required=False,
+)
+@click.option(
     "-j",
     "--jobs",
     type=int,
@@ -427,7 +434,7 @@ def contigs(input, output, database, jobs, batch, snakemake_args, **kwargs):
     help="Test execution.",
 )
 @click.argument("snakemake_args", nargs=-1, type=click.UNPROCESSED)
-def reads(input, input2, output, jobs, profile, dryrun, bbmap_args, pileup_args, summary_args, snakemake_args):
+def reads(input, input2, output, database, jobs, profile, dryrun, bbmap_args, pileup_args, summary_args, snakemake_args):
     """
     Runs Vcat pipeline on reads
 
@@ -437,7 +444,7 @@ def reads(input, input2, output, jobs, profile, dryrun, bbmap_args, pileup_args,
     logger.info(f"vcat version: {__version__}")
 
     conf = load_configfile(CONFIG)
-    db_dir = conf["database_dir"]
+    db_dir = database or conf["database_dir"]
 
     cmd = [
         "snakemake",
