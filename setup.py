@@ -15,7 +15,7 @@ with open(path.join(this_directory, "README.md"), encoding="utf-8") as f:
 scripts = [path.join("scripts", i) for i in listdir(path.join(this_directory, "scripts")) if i.endswith(".py")]
 setup(
     name="vcat",
-    version="0.0.3",
+    version="0.0.4",
     url="https://github.com/Yasas94/vcat",
     license=__license__,
     author=__author__,
@@ -30,7 +30,7 @@ setup(
         "vcat": ["pipeline/*", "pipeline/rules/*"],
     },
     data_files=[(".", ["README.md", "LICENSE", "MANIFEST.in"])],
-    install_requires=[],
+    install_requires=["gffpandas"],
     # install via conda: click, pandas, pyyaml, snakemake
     entry_points={"console_scripts": ["vcat = vcat.cli:cli"]},
     classifiers=["Topic :: Scientific/Engineering :: Bio-Informatics"],
