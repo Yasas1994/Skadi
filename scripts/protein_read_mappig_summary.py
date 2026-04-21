@@ -508,7 +508,7 @@ def index_gff3_files(gff3_dir: Path, extension: str) -> dict[str, Path]:
 @click.argument("output_tsv", type=click.Path(path_type=Path))
 @click.option(
     "--blast-columns",
-    default="qseqid,sseqid,pident,length,mismatch,gapopen,qstart,qend,sstart,send,evalue,bitscore,staxids,slineage",
+    default="qseqid,sseqid,pident,length,mismatch,gapopen,qstart,qend,sstart,send,evalue,bitscore,staxids,slineages",
     show_default=True,
     help="Comma-separated DIAMOND/BLAST outfmt 6 columns used if the blast file has no header.",
 )
@@ -598,7 +598,7 @@ def cli(
         aa_end = max(rec["sstart"], rec["send"])
 
         taxid = normalize_staxid(rec.get("staxids", ""))
-        taxlineage = format_taxlineage(rec.get("slineage", ""))
+        taxlineage = format_taxlineage(rec.get("slineages", ""))
 
         hits_by_genome[genome_id].append(
             {
