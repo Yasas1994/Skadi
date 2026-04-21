@@ -16,6 +16,10 @@ The Virus contig annotation tool (Vcat) is a straightforward, homology-based app
 
 ### Changelog
 ---
+<b>0.0.4</b>
+* VMR_41v1 is now available to download
+* added protein-level read annotation workflow 
+
 <b>0.0.3</b>
 * VMR_40v2 is now available to download
 * added read annotation workflow 
