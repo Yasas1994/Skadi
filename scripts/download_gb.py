@@ -73,7 +73,8 @@ def main(infile: Path, outdir: Path, batch_size: int) -> None:
             if not cell.value:
                 continue
 
-            m = re.search(NCBI_LINK_PATTERN, cell.value)
+            cell_text = str(cell.value)
+            m = re.search(NCBI_LINK_PATTERN, cell_text)
             if m:
                 ids = m.group(1)
             else:

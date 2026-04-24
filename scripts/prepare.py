@@ -9,6 +9,7 @@ This script needs refractoring!
 import re
 from glob import glob
 from pathlib import Path
+from typing import List
 
 import click
 import numpy as np
@@ -60,6 +61,15 @@ def extract_species_name(text: str) -> str | None:
 
     return text if text else None
 
+
+def get_taxid_from_species(species: str , taxdb: taxopy.TaxDb) -> List[int] | List[List[int]] | None:
+    name = extract_species_name(species)
+    if not name:
+        return None
+    taxids = taxopy.taxid_from_name(name, taxdb)
+    return taxids
+
+
 @click.command(context_settings=dict(show_default=True, help_option_names=["-h", "--help"]))
 @click.option(
     "-d",
@@ -110,7 +120,7 @@ def main(database_dir: Path, xltable: Path, gbdir: Path, seqdir: Path) -> None:
 
     ictv = ictv[ictv["Accessions Link"].notna()]
 
-    ictv["Taxid"] = ictv["Species"].apply(lambda x: taxopy.taxid_from_name(extract_species_name(x), taxdb)[0])
+    ictv["Taxid"] = ictv["Species"].apply(lambda x: taxopy.taxid_from_name(extract_species_name(x) or "", taxdb)[0])
     ictv["IDS"] = ictv.apply(
         lambda x: extract_from_hyperlink(x["Accessions Link"])["url"].split("/")[-1].split(","),
         axis=1,
@@ -140,15 +150,15 @@ def main(database_dir: Path, xltable: Path, gbdir: Path, seqdir: Path) -> None:
     for file in tqdm(all_files, desc="Extracting proteins"):
         with open(file) as handle:
             for record in GenBank.parse(handle):
-                if record.version.split(".")[0] not in all_nrids:
+                if record.version.split(".")[0] not in all_nrids:  # type: ignore
                     continue
 
-                if record.version.split(".")[0] in id2range:
-                    feature_range = id2range[record.version.split(".")[0]][0]
+                if record.version.split(".")[0] in id2range:  # type: ignore
+                    feature_range = id2range[record.version.split(".")[0]][0]  # type: ignore
                 else:
                     feature_range = (0, np.inf)
 
-                for feature in record.features:
+                for feature in record.features:  # type: ignore
                     if feature.key != "CDS":
                         continue
 
@@ -186,15 +196,15 @@ def main(database_dir: Path, xltable: Path, gbdir: Path, seqdir: Path) -> None:
         for file in tqdm(all_files, desc="Writing protein accession2taxid"):
             with open(file) as handle:
                 for record in GenBank.parse(handle):
-                    if record.version.split(".")[0] not in all_nrids:
+                    if record.version.split(".")[0] not in all_nrids:  # type: ignore
                         continue
 
-                    if record.version.split(".")[0] in id2range:
-                        feature_range = id2range[record.version.split(".")[0]][0]
+                    if record.version.split(".")[0] in id2range:  # type: ignore
+                        feature_range = id2range[record.version.split(".")[0]][0]  # type: ignore
                     else:
                         feature_range = (0, np.inf)
 
-                    for feature in record.features:
+                    for feature in record.features:  # type: ignore
                         if feature.key != "CDS":
                             continue
 
@@ -210,7 +220,7 @@ def main(database_dir: Path, xltable: Path, gbdir: Path, seqdir: Path) -> None:
                         start, end = list(map(int, re.findall(r"(\d+)\D+(\d+)", feature.location)[0]))
                         if (min(feature_range[0], start) == feature_range[0] and max(feature_range[1], end) == feature_range[1]) and len(protein_seq) > 0:
                             fh2.write(
-                                f"{protein_id.split('.')[0]}\t{protein_id}\t{id2newtax[record.accession[0]]}\t-\n"
+                                f"{protein_id.split('.')[0]}\t{protein_id}\t{id2newtax[record.accession[0]]}\t-\n"  # type: ignore
                             )
     logger.info("%s created", prot_map_path)
 
@@ -218,26 +228,26 @@ def main(database_dir: Path, xltable: Path, gbdir: Path, seqdir: Path) -> None:
     for file in tqdm(all_files, desc="Extracting genomes"):
         with open(file) as handle:
             for record in GenBank.parse(handle):
-                if record.version.split(".")[0] not in all_nrids:
+                if record.version.split(".")[0] not in all_nrids:  # type: ignore
                     continue
 
-                if record.version.split(".")[0] in id2range:
-                    feature_range = id2range[record.version.split(".")[0]][0]
+                if record.version.split(".")[0] in id2range:  # type: ignore
+                    feature_range = id2range[record.version.split(".")[0]][0]  # type: ignore
                 else:
                     feature_range = (0, None)
 
-                seq = record.sequence[feature_range[0] : feature_range[1]]
+                seq = record.sequence[feature_range[0] : feature_range[1]]  # type: ignore
                 if not seq:
                     continue
 
-                if record.accession[0] in seq_records:
-                    logger.warning("%s is duplicated!", record.accession[0])
+                if record.accession[0] in seq_records:  # type: ignore
+                    logger.warning("%s is duplicated!", record.accession[0])  # type: ignore
                     continue
 
-                seq_records[record.accession[0]] = SeqRecord(
+                seq_records[record.accession[0]] = SeqRecord(  # type: ignore
                     Seq(seq),
-                    id=record.accession[0],
-                    description=f"[{record.source}] {record.data_file_division}",
+                    id=record.accession[0],  # type: ignore
+                    description=f"[{record.source}] {record.data_file_division}",  # type: ignore
                 )
 
     genomes_path = seqdir / "genomes.fna"
@@ -251,9 +261,9 @@ def main(database_dir: Path, xltable: Path, gbdir: Path, seqdir: Path) -> None:
         for file in tqdm(all_files, desc="Writing genome accession2taxid"):
             with open(file) as handle:
                 for record in GenBank.parse(handle):
-                    if record.version.split(".")[0] in all_nrids:
+                    if record.version.split(".")[0] in all_nrids: # type: ignore
                         fh2.write(
-                            f"{record.accession[0].split('.')[0]}\t{record.accession[0].split('.')[0]}\t{id2newtax[record.accession[0]]}\t-\n"
+                            f"{record.accession[0].split('.')[0]}\t{record.accession[0].split('.')[0]}\t{id2newtax[record.accession[0]]}\t-\n"  # type: ignore
                         )
 
     logger.info("%s created", genome_map_path)

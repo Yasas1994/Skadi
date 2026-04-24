@@ -52,12 +52,11 @@ clusters["lineage"] = clusters.apply(
 )
 clusters["root_p1"] = clusters.apply(lambda x: x["lineage"].taxid_lineage[-2], axis=1)
 
-clustlca = clusters.groupby(["target", "root_p1"]).apply(
-    lambda x: lca(x["lineage"]), include_groups=False
+clustlca = (
+    clusters.groupby(["target", "root_p1"])["lineage"]
+    .agg(lca)
+    .reset_index(name="taxid")
 )
-
-clustlca = pd.DataFrame(clustlca).reset_index()
-clustlca.columns = ["target", "root_p1", "taxid"]
 logger.info("writing cluster to LCA mapping file")
 clustlca.to_csv(
     f"{DATABASE_DIR}/VMR_latest/mmseqs_pprofiles/mmseqs_pprofiles_lca.tsv",

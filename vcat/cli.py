@@ -19,7 +19,7 @@ CONFIG = os.path.join(PIPELINE_DIR, "config.yaml")
 HEADER = "query,target,theader,fident,qlen,tlen,alnlen,mismatch,gapopen,qstart,qend,tstart,tend,evalue,bits,taxid,taxname,taxlineage"
 CONFIG_CONTENT = yaml.safe_load(open(CONFIG, "r"))
 
-
+__version__ = ""
 try:
     __version__ = version("vcat")
 except PackageNotFoundError:
@@ -290,6 +290,7 @@ def contigs(input, output, database, jobs, batch, snakemake_args, **kwargs):
     logger.info(f"vcat version: {__version__}")
     conf = load_configfile(CONFIG)
     db_dir = database or conf["database_dir"]
+    logger.info(f"database version: {Path(db_dir).name}")
 
     taai_parts, tapi_parts, tani_parts = [], [], []
 
@@ -314,7 +315,7 @@ def contigs(input, output, database, jobs, batch, snakemake_args, **kwargs):
 
     cmd_parts = [
         "snakemake",
-        f"--snakefile {get_snakefile('./pipeline/contig_annotation')}",
+        f"--snakefile {get_snakefile('./pipeline/contig_annotation.smk')}",
         f"--jobs {jobs}",
         "--rerun-incomplete",
         f"--configfile {CONFIG}",
@@ -442,13 +443,13 @@ def reads(input, input2, output, database, jobs, profile, dryrun, bbmap_args, pi
     """
 
     logger.info(f"vcat version: {__version__}")
-
     conf = load_configfile(CONFIG)
     db_dir = database or conf["database_dir"]
+    logger.info(f"database version: {Path(db_dir).name}")
 
     cmd = [
         "snakemake",
-        f"--snakefile {get_snakefile('./pipeline/read_annotation')}",
+        f"--snakefile {get_snakefile('./pipeline/read_annotation.smk')}",
         f"--jobs {jobs}",
         "--rerun-incomplete",
         f"--configfile {CONFIG}",
@@ -599,6 +600,7 @@ def downloaddb(db_dir, dbversion, snakemake_args):
     cmd_parts = [
         "snakemake",
         f"--snakefile {get_snakefile('./pipeline/rules/download.smk')}",
+        "--jobs 1",
         "--rerun-incomplete",
         f"--configfile {CONFIG}",
         "--scheduler greedy",

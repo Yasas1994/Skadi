@@ -461,7 +461,7 @@ def read_blast_hits(
             if len(row) < len(header):
                 continue
 
-            rec = {name: row[idx] for name, idx in h2i.items() if idx < len(row)}
+            rec: dict[str, str | int | float] = {name: row[idx] for name, idx in h2i.items() if idx < len(row)}
 
             try:
                 rec["pident"] = float(rec["pident"])
@@ -588,7 +588,7 @@ def cli(
     ) or []:
         blast_rows_total += 1
 
-        resolved_protein = resolve_id(rec["sseqid"], protein_exact_lookup, protein_map_alias)
+        resolved_protein = resolve_id(str(rec["sseqid"]), protein_exact_lookup, protein_map_alias)
         if resolved_protein is None:
             blast_rows_unmapped_subject += 1
             continue
@@ -597,8 +597,8 @@ def cli(
         aa_start = min(rec["sstart"], rec["send"])
         aa_end = max(rec["sstart"], rec["send"])
 
-        taxid = normalize_staxid(rec.get("staxids", ""))
-        taxlineage = format_taxlineage(rec.get("slineages", ""))
+        taxid = normalize_staxid(str(rec.get("staxids", "")))
+        taxlineage = format_taxlineage(str(rec.get("slineages", "")))
 
         hits_by_genome[genome_id].append(
             {

@@ -18,7 +18,11 @@ from vcat.color_logger import logger
 
 def trim_lineage(taxid: int, taxdb: TaxDb, taxomic_level: str = "species") -> int:
     # trims lineages to the level
-    return Taxon(taxid, taxdb).rank_taxid_dictionary.get(taxomic_level)
+    taxon = Taxon(taxid, taxdb)
+    trimmed = taxon.rank_taxid_dictionary.get(taxomic_level)
+    if trimmed is None:
+        return taxid
+    return trimmed
 
 
 keys = [
@@ -263,7 +267,7 @@ def main(db_dir: str, nuc: str, prot: str, prof: str, outfile: str, **kwargs):
 
     def get_rank_taxid(taxid: int, rank: str) -> int:
         """Return the taxid that corresponds to *rank* (e.g. 'species', 'genus')."""
-        return get_taxon(taxid).rank_taxid_dictionary.get(rank)
+        return get_taxon(taxid).rank_taxid_dictionary.get(rank, 0)
 
     dfs = []
     matched = []

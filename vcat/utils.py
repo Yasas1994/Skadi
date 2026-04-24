@@ -279,8 +279,8 @@ def compute_cov(alns: List[pl.Series]) -> float:
 def ani_summary(infile: Union[str, StringIO], 
                 all: bool, 
                 header: list,
-                dbdir: str = None,
-                level: str = None) -> Union[Any, Exception]:
+                dbdir: str | None = None,
+                level: str | None = None) -> Union[Any, Exception]:
     """
     Robust per-group ANI summary that avoids list[f64] issues in Polars by
     grouping via pandas and computing scalar aggregates per (query,target).
@@ -496,7 +496,7 @@ def axi_summary(
     top_k: int,
     kind: str,
     all: bool,
-    level: str = None,
+    level: str | None = None,
 ) -> Union[pl.DataFrame, Exception]:
     # ps: optimized for speed not for readability
 
@@ -558,12 +558,13 @@ def axi_summary(
         input, has_header=False, separator="\t", new_columns=header
     )
     # pick the top-k hits per query protein
+    explode_cols = [c for c in mmseqs_axi.columns if c != "query"]
     mmseqs_axi = (
         mmseqs_axi.group_by("query")
         .agg(
             pl.all().top_k_by("fident", top_k),
         )
-        .explode(pl.all().exclude("query"))
+        .explode(explode_cols)
     )
 
     mmseqs_axi = gff_df.select(
@@ -665,7 +666,7 @@ def axi_summary(
 
 
 def index_m8(input: Union[str, Path],
-             kind: str) -> defaultdict[str, List]:
+             kind: str) -> DefaultDict[int, List]:
     """
     m8 files with blast results can be insanely large and may require a large amount of
     memory to load.
@@ -708,7 +709,7 @@ def index_m8(input: Union[str, Path],
 
 def load_chunk(
     input: str, 
-    index: DefaultDict[int,List], 
+    index: DefaultDict[int, List], 
     recstart: int, 
     recend: int
 ) -> StringIO:
