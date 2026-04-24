@@ -11,7 +11,7 @@ dependencies:
 - taxopy
 - rapidfuzz
 - taxonkit=0.18.0
-- mmseqs2=17.b804f # upgraded from 15.6f452 
+- mmseqs2 [version='>=17.b804f'] # upgraded from 15.6f452 
 - snakemake
 - seaborn
 - pyfastx
