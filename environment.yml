@@ -29,3 +29,4 @@ dependencies:
 - pip
 - prodigal-gv
 - blast
+- diamond>=2.1.14
