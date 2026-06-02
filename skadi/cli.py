@@ -25,15 +25,19 @@ try:
 except PackageNotFoundError:
     # package is not installed
     pass
+
+
 def load_configfile(file_path):
     with open(file_path, "r") as f:
         return yaml.safe_load(f)
+
 
 def parse_csv(ctx, param, value):
     """Split the comma-separated input into a list."""
     if value:
         return value.split(",")
     return []
+
 
 def format_databases(config):
     default_url = ""
@@ -46,61 +50,93 @@ def format_databases(config):
             default_url += i.get("link")
     return default, choices, default_url
 
-def handle_max_mem(max_mem, profile):
-    "Specify maximum virtual memory to use by atlas."
-    "For numbers >1 its the memory in GB. "
-    "For numbers <1 it's the fraction of available memory."
 
-    if profile is not None:
-        if max_mem is not None:
-            logger.info(
-                "Memory requirements are handled by the profile, I ignore max-mem argument."
-            )
-        # memory is handled via the profile, user should know what he is doing
-        return ""
-    else:
-        import psutil
-        from math import floor
-
-        # calulate max  system meory in GB (float!)
-        max_system_memory = psutil.virtual_memory().total / (1024**3)
-
-        if max_mem is None:
-            max_mem = 0.95
-        if max_mem > 1:
-            if max_mem > max_system_memory:
-                logger.critical(
-                    f"You specified {max_mem} GB as maximum memory, but your system only has {floor(max_system_memory)} GB"
-                )
-                sys.exit(1)
-
-        else:
-            max_mem = max_mem * max_system_memory
-
-        # specify max_mem_string including java mem and max mem
-
-        return f" --resources mem={floor(max_mem)} mem_mb={floor(max_mem*1024)} java_mem={floor(0.85* max_mem)} "
-
-def get_snakefile(file=f"{PIPELINE_DIR }/Snakefile"):
+def get_snakefile(file=f"{PIPELINE_DIR}/Snakefile"):
     sf = os.path.join(os.path.dirname(os.path.abspath(__file__)), file)
     if not os.path.exists(sf):
         sys.exit("Unable to locate the Snakemake workflow file; tried %s" % sf)
     return sf
 
+
 def update_config(config_path, data: dict):
     import yaml
 
-    # Step 1: Read the YAML file
     with open(config_path, "r") as file:
-        config = yaml.safe_load(file)  # Load the YAML into a Python dictionary
+        config = yaml.safe_load(file)
 
-    # Step 2: Update the configuration
     for k, v in data.items():
         config[k] = v
 
-    # Step 3: Write back to the YAML file
     with open(config_path, "w") as file:
         yaml.safe_dump(config, file, default_flow_style=False)
+
+
+def _run_command(cmd: list[str]) -> None:
+    """Run a command safely without shell=True.
+
+    Args:
+        cmd: List of command arguments (e.g., ["snakemake", "--jobs", "4"]).
+
+    Raises:
+        SystemExit: If the command returns a non-zero exit code.
+    """
+    logger.debug("Executing: %s", " ".join(cmd))
+    try:
+        subprocess.run(cmd, check=True)
+    except subprocess.CalledProcessError as e:
+        logger.critical("Command failed: %s", e)
+        sys.exit(1)
+    except FileNotFoundError as e:
+        logger.critical("Command not found: %s", e)
+        sys.exit(1)
+
+
+def _build_snakemake_cmd(
+    snakefile: str,
+    jobs: int,
+    configfile: str,
+    config_overrides: dict[str, str],
+    extra_args: tuple[str, ...] = (),
+    dryrun: bool = False,
+) -> list[str]:
+    """Build a snakemake command as a list for safe execution.
+
+    Args:
+        snakefile: Path to the Snakefile.
+        jobs: Number of parallel jobs.
+        configfile: Path to the config YAML file.
+        config_overrides: Dict of --config key=value pairs.
+        extra_args: Additional snakemake arguments.
+        dryrun: Whether to add --dry-run.
+
+    Returns:
+        Command as a list of strings.
+    """
+    cmd = [
+        "snakemake",
+        "--snakefile", snakefile,
+        "--jobs", str(jobs),
+        "--rerun-incomplete",
+        "--configfile", configfile,
+        "--scheduler", "greedy",
+        "--show-failed-logs",
+        "--groups", "group1=1",
+        "--config",
+    ]
+    for key, value in config_overrides.items():
+        cmd.append(f"{key}={value}")
+
+    if dryrun:
+        cmd.append("--dry-run")
+
+    if extra_args:
+        if extra_args[0].startswith("-"):
+            cmd.extend(extra_args)
+        else:
+            cmd.append("--")
+            cmd.extend(extra_args)
+
+    return cmd
 
 
 @click.group(context_settings=dict(help_option_names=["-h", "--help"]))
@@ -278,7 +314,7 @@ def cli(obj):
     help="Test execution.",
 )
 @click.argument("snakemake_args", nargs=-1, type=click.UNPROCESSED)
-def contigs(input, output, database, jobs, batch, snakemake_args, **kwargs):
+def contigs(input, output, database, jobs, batch, snakemake_args, dryrun, **kwargs):
     """
     Runs SKADI pipeline on contigs
 
@@ -306,46 +342,31 @@ def contigs(input, output, database, jobs, batch, snakemake_args, **kwargs):
     tapi_params = " ".join(tapi_parts)
     tani_params = " ".join(tani_parts)
 
-    # nuc_search: only pass if explicitly provided
     nuc_search = kwargs.get("nuc_search", None)
-    if isinstance(nuc_search, bool):
-        nuc_search = str(nuc_search).lower()  # "true"/"false" plays nicer in configs
 
-    cmd_parts = [
-        "snakemake",
-        f"--snakefile {get_snakefile('./pipeline/contig_annotation.smk')}",
-        f"--jobs {jobs}",
-        "--rerun-incomplete",
-        f"--configfile {CONFIG}",
-        "--scheduler greedy",
-        "--show-failed-logs",
-        "--groups group1=1",
-        "--config",
-        f"database_dir='{db_dir}'",
-        f"sample='{input}'",
-        f"output_dir='{output}'",
-        f"api='{tapi_params}'",
-        f"aai='{taai_params}'",
-        f"ani='{tani_params}'",
-        f"batch='{batch}'",
-    ]
-
+    config_overrides = {
+        "database_dir": db_dir,
+        "sample": input,
+        "output_dir": output,
+        "api": tapi_params,
+        "aai": taai_params,
+        "ani": tani_params,
+        "batch": str(batch),
+    }
     if nuc_search is not None:
-        cmd_parts.append(f"nuc_search='{nuc_search}'")
+        config_overrides["nuc_search"] = nuc_search
 
-    if snakemake_args:
-        cmd_parts.extend(snakemake_args)
+    cmd = _build_snakemake_cmd(
+        snakefile=get_snakefile("./pipeline/contig_annotation.smk"),
+        jobs=jobs,
+        configfile=CONFIG,
+        config_overrides=config_overrides,
+        extra_args=snakemake_args,
+        dryrun=dryrun,
+    )
 
-    cmd = " ".join(cmd_parts)
-
-    logger.info(cmd)
-    logger.debug("Executing: %s" % cmd)
-    try:
-        subprocess.check_call(cmd, shell=True)
-    except subprocess.CalledProcessError as e:
-        # removes the traceback
-        logger.critical(e)
-        exit(1)
+    logger.info(" ".join(cmd))
+    _run_command(cmd)
 
 
 @cli.command(
@@ -444,40 +465,33 @@ def reads(input, input2, output, database, jobs, profile, dryrun, bbmap_args, pi
     db_dir = database or conf["database_dir"]
     logger.info(f"database version: {Path(db_dir).name}")
 
-    cmd = [
-        "snakemake",
-        f"--snakefile {get_snakefile('./pipeline/read_annotation.smk')}",
-        f"--jobs {jobs}",
-        "--rerun-incomplete",
-        f"--configfile {CONFIG}",
-        "--scheduler greedy",
-        "--show-failed-logs",
-        "--groups group1=1",
-        f"--config database_dir='{db_dir}' sample='in={input}, in2={input2}' output_dir='{output}' bbmap_args='{bbmap_args}' pileup_args='{pileup_args}' summary_args='{summary_args}'",
-    ]
+    sample_str = f"in={input}, in2={input2}" if input2 else f"in={input}"
 
-    if dryrun:
-        cmd.append("--dry-run")
+    config_overrides = {
+        "database_dir": db_dir,
+        "sample": sample_str,
+        "output_dir": output,
+        "bbmap_args": bbmap_args,
+        "pileup_args": pileup_args,
+        "summary_args": summary_args,
+    }
+
+    cmd = _build_snakemake_cmd(
+        snakefile=get_snakefile("./pipeline/read_annotation.smk"),
+        jobs=jobs,
+        configfile=CONFIG,
+        config_overrides=config_overrides,
+        extra_args=snakemake_args,
+        dryrun=dryrun,
+    )
 
     if profile:
-        cmd.append(f"--profile {profile}")
+        # Insert --profile after snakemake but before other args
+        cmd.insert(2, "--profile")
+        cmd.insert(3, profile)
 
-    if snakemake_args:
-        if snakemake_args[0].startswith("-"):
-            cmd.extend(snakemake_args)
-        else:
-            cmd.append("--")
-            cmd.extend(snakemake_args)
-
-    cmd = " ".join(cmd)
-
-    logger.debug("Executing: %s" % cmd)
-    try:
-        subprocess.check_call(cmd, shell=True)
-    except subprocess.CalledProcessError as e:
-        # removes the traceback
-        logger.critical(e)
-        exit(1)
+    logger.debug("Executing: %s", " ".join(cmd))
+    _run_command(cmd)
 
 
 # Download and build
@@ -502,66 +516,26 @@ def reads(input, input2, output, database, jobs, profile, dryrun, bbmap_args, pi
 )
 @click.argument("snakemake_args", nargs=-1, type=click.UNPROCESSED)
 def preparedb(db_dir, jobs, snakemake_args):
-    """Executes a snakemake workflow to downlod and building the databases"""
+    """Executes a snakemake workflow to download and build the databases"""
     logger.info("Building taxdb")
-    cmd_parts = [
-        "snakemake",
-        f"--snakefile {get_snakefile('./pipeline/rules/taxdump.smk')}",
-        f"--jobs {jobs}",
-        "--rerun-incomplete",
-        f"--configfile {CONFIG}",
-        "--scheduler greedy",
-        "--show-failed-logs",
-        "--config",
-        f"database_dir='{db_dir}'",
-    ]
-
-    if snakemake_args:
-        if snakemake_args[0].startswith("-"):
-            cmd_parts.extend(snakemake_args)
-        else:
-            cmd_parts.append("--")
-            cmd_parts.extend(snakemake_args)
-
-    cmd = " ".join(cmd_parts)
-
-    try:
-        subprocess.check_call(cmd, shell=True)
-    except subprocess.CalledProcessError as e:
-        # removes the traceback
-        logger.critical(e)
-        exit(1)
+    cmd = _build_snakemake_cmd(
+        snakefile=get_snakefile("./pipeline/rules/taxdump.smk"),
+        jobs=jobs,
+        configfile=CONFIG,
+        config_overrides={"database_dir": db_dir},
+        extra_args=snakemake_args,
+    )
+    _run_command(cmd)
 
     logger.info("Building mmseqs databases")
-
-    cmd_parts = [
-        "snakemake",
-        f"--snakefile {get_snakefile('./pipeline/rules/createdb.smk')}",
-        f"--jobs {jobs}",
-        "--rerun-incomplete",
-        f"--configfile {CONFIG}",
-        "--scheduler greedy",
-        "--show-failed-logs",
-        "--config",
-        f"database_dir='{db_dir}'",
-    ]
-
-    if snakemake_args:
-        if snakemake_args[0].startswith("-"):
-            cmd_parts.extend(snakemake_args)
-        else:
-            cmd_parts.append("--")
-            cmd_parts.extend(snakemake_args)
-
-    cmd = " ".join(cmd_parts)
-
-
-    try:
-        subprocess.check_call(cmd, shell=True)
-    except subprocess.CalledProcessError as e:
-        # removes the traceback
-        logger.critical(e)
-        exit(1)
+    cmd = _build_snakemake_cmd(
+        snakefile=get_snakefile("./pipeline/rules/createdb.smk"),
+        jobs=jobs,
+        configfile=CONFIG,
+        config_overrides={"database_dir": db_dir},
+        extra_args=snakemake_args,
+    )
+    _run_command(cmd)
 
     logger.info(f"Adding {db_dir} to config.yaml")
     update_config(config_path=CONFIG, data={"database_dir": db_dir})
@@ -594,35 +568,18 @@ def downloaddb(db_dir, dbversion, snakemake_args):
     "pull pre-built databases from a remote server"
 
     logger.info(f"downloading {dbversion} database from remote server")
-    cmd_parts = [
-        "snakemake",
-        f"--snakefile {get_snakefile('./pipeline/rules/download.smk')}",
-        "--jobs 1",
-        "--rerun-incomplete",
-        f"--configfile {CONFIG}",
-        "--scheduler greedy",
-        "--show-failed-logs",
-        "--config",
-        f"database_dir='{db_dir}'",
-        f"dbversion='{dbversion}'",
-        f"dburl='{default_url}'",
-    ]
-
-    if snakemake_args:
-        if snakemake_args[0].startswith("-"):
-            cmd_parts.extend(snakemake_args)
-        else:
-            cmd_parts.append("--")
-            cmd_parts.extend(snakemake_args)
-
-    cmd = " ".join(cmd_parts)
-
-    try:
-        subprocess.check_call(cmd, shell=True)
-    except subprocess.CalledProcessError as e:
-        # removes the traceback
-        logger.critical(e)
-        exit(1)
+    cmd = _build_snakemake_cmd(
+        snakefile=get_snakefile("./pipeline/rules/download.smk"),
+        jobs=1,
+        configfile=CONFIG,
+        config_overrides={
+            "database_dir": db_dir,
+            "dbversion": dbversion,
+            "dburl": default_url,
+        },
+        extra_args=snakemake_args,
+    )
+    _run_command(cmd)
 
     logger.info(f"Adding {db_dir} to config.yaml")
     update_config(
@@ -682,14 +639,14 @@ def utils(obj):
     "--tanig",
     type=float,
     default=0.49,
-    help="assign sequences above this taai threshold to genera",
+    help="assign sequences above this tani threshold to genera",
     required=False,
 )
 @click.option(
     "--tanis",
     type=float,
     default=0.81,
-    help="assign sequences above this taai threshold to species",
+    help="assign sequences above this tani threshold to species",
     required=False,
 )
 @click.option(
@@ -726,9 +683,8 @@ def ani(input, output, header, level, dbdir, all, batch, **kwargs):
     to the best
     """
     if (level or dbdir) and not (level and dbdir):
-            logger.error(f"{level} and {dbdir} are mutually inclusive")
-            exit(1)
-
+        logger.error(f"{level} and {dbdir} are mutually inclusive")
+        sys.exit(1)
 
     CHUNK_SIZE = batch
     file_name = os.path.basename(input)
@@ -741,33 +697,35 @@ def ani(input, output, header, level, dbdir, all, batch, **kwargs):
                 input, index=index, recstart=i, recend=min(i + CHUNK_SIZE, len(index))
             )
             outfile = os.path.join(
-                    os.path.dirname(input),
-                    f"{os.path.splitext(file_name)[0]}_ani_{min(i + CHUNK_SIZE, len(index))}.tsv",
-                )
-            status = ani_summary(finput, all=all, header=header, level=level, dbdir=dbdir)
+                os.path.dirname(input),
+                f"{os.path.splitext(file_name)[0]}_ani_{min(i + CHUNK_SIZE, len(index))}.tsv",
+            )
+            try:
+                status = ani_summary(finput, all=all, header=header, level=level, dbdir=dbdir)
+            except Exception as e:
+                logger.error("error occured!")
+                logger.exception(e)
+                sys.exit(1)
+
             if isinstance(status, pl.DataFrame):
                 status.write_csv(outfile, separator="\t")
                 logger.info(f"{outfile} updated")
                 tmp_files.append(outfile)
-
             else:
-                # exit code 1
-                logger.error("error occured!")
-                logger.exception(status)
-                exit(1)
+                logger.error("ani_summary returned unexpected type: %s", type(status))
+                sys.exit(1)
 
     logger.info("trying to merge temporary files")
     tmp = [pl.read_csv(f, separator="\t") for f in tmp_files]
     tmp = [i for i in tmp if not i.is_empty()]
     if not output:
         outfile = os.path.join(
-                os.path.dirname(input), f"{os.path.splitext(file_name)[0]}_ani.tsv"
-            )
+            os.path.dirname(input), f"{os.path.splitext(file_name)[0]}_ani.tsv"
+        )
     else:
         outfile = output
     if tmp:
         df = pl.concat(tmp)
-
         df.write_csv(outfile, separator="\t")
         logger.info(f"{outfile} updated")
     else:
@@ -931,32 +889,34 @@ def aai(
                 os.path.dirname(input),
                 f"{os.path.splitext(file_name)[0]}_aai_{min(i + CHUNK_SIZE, len(index))}.tsv",
             )
-            status = axi_summary(
-                finput, gff, dbdir, header, THRESHOLDS, top_k=topk, kind="aai", all=all, level=level
-            )
+            try:
+                status = axi_summary(
+                    finput, gff, dbdir, header, THRESHOLDS, top_k=topk, kind="aai", all=all, level=level
+                )
+            except Exception as e:
+                logger.error("error occured!")
+                logger.exception(e)
+                sys.exit(1)
+
             if isinstance(status, pl.DataFrame):
                 status.write_csv(outfile, separator="\t")
                 logger.info(f"{outfile} updated")
                 tmp_files.append(outfile)
-
             else:
-                # exit code 1
-                logger.error("error occured!")
-                logger.exception(status)
-                exit(1)
+                logger.error("axi_summary returned unexpected type: %s", type(status))
+                sys.exit(1)
 
     logger.info("merging temporary files")
     tmp = [pl.read_csv(f, separator="\t") for f in tmp_files]
     tmp = [i for i in tmp if not i.is_empty()]
     if not output:
         outfile = os.path.join(
-                os.path.dirname(input), f"{os.path.splitext(file_name)[0]}_aai.tsv"
-            )
+            os.path.dirname(input), f"{os.path.splitext(file_name)[0]}_aai.tsv"
+        )
     else:
         outfile = output
     if tmp:
         df = pl.concat(tmp)
-
         df.write_csv(outfile, separator="\t")
         logger.info(f"{outfile} updated")
     else:
@@ -1110,30 +1070,32 @@ def api(input, output, header, tapif, tapio, tapic, tapip, tapik, batch, dbdir, 
                 os.path.dirname(input),
                 f"{os.path.splitext(file_name)[0]}_api_{min(i + CHUNK_SIZE, len(index))}.tsv",
             )
-            status = axi_summary(
-                finput, gff, dbdir, header, THRESHOLDS, top_k=topk, kind="api", level=level, all=all
-            )
+            try:
+                status = axi_summary(
+                    finput, gff, dbdir, header, THRESHOLDS, top_k=topk, kind="api", level=level, all=all
+                )
+            except Exception as e:
+                logger.error("error occured!")
+                logger.exception(e)
+                sys.exit(1)
+
             if isinstance(status, pl.DataFrame):
                 status.write_csv(outfile, separator="\t")
                 logger.info(f"{outfile} updated")
                 tmp_files.append(outfile)
-
             else:
-                # exit code 1
-                logger.error("error occured!")
-                logger.exception(status)
-                exit(1)
+                logger.error("axi_summary returned unexpected type: %s", type(status))
+                sys.exit(1)
 
     logger.info("merging temporary files")
     tmp = [pl.read_csv(f, separator="\t") for f in tmp_files]
     tmp = [i for i in tmp if not i.is_empty()]
     if not output:
         outfile = os.path.join(
-                os.path.dirname(input), f"{os.path.splitext(file_name)[0]}_api.tsv"
-            )
+            os.path.dirname(input), f"{os.path.splitext(file_name)[0]}_api.tsv"
+        )
     else:
         outfile = output
-
     if tmp:
         df = pl.concat(tmp)
         df.write_csv(outfile, separator="\t")
@@ -1150,8 +1112,8 @@ def api(input, output, header, tapif, tapio, tapic, tapip, tapik, batch, dbdir, 
 @utils.command(
     context_settings=dict(ignore_unknown_options=True, show_default=True),
     help="""
-            subsamples nucleotide fragments from a multifasta file from a 
-            given size range
+    subsamples nucleotide fragments from a multifasta file from a 
+    given size range
 
             usage                                                                      
             -----                                                                      
@@ -1210,7 +1172,7 @@ def api(input, output, header, tapif, tapio, tapic, tapip, tapik, batch, dbdir, 
     required=False,
 )
 @click.option(
-    "--man_n_prop",
+    "--max_n_prop",
     type=float,
     default=0.3,
     help="maximum proportion of Ns allowed in a fragment",
@@ -1230,8 +1192,9 @@ def fragment(**kwargs):
     from skadi.frgment import split_core
     split_core(**kwargs)
 
+
 @utils.command(
-    context_settings=dict(ignore_unknown_options=True,  show_default=True),
+    context_settings=dict(ignore_unknown_options=True, show_default=True),
     help="""
     benchmark the performance by leaving out taxa. Suppose target X belongs to taxon Y 
     we remove all query hits to taxon Y and calculate the axi to the taxa belonging to remianing hits.
@@ -1379,7 +1342,6 @@ def benchmark(dbdir, results, batch, level, snakemake_args, **kwargs):
 
     skadi utils benchmark --dbdir <path> --results <results_dir>
     """
-    pass
     logger.info(f"skadi version: {__version__}")
     taai_params = ""
     tapi_params = ""
@@ -1391,44 +1353,30 @@ def benchmark(dbdir, results, batch, level, snakemake_args, **kwargs):
             tapi_params += f" --{k} {v}"
         elif k.startswith("tani"):
             tani_params += f" --{k} {v}"
-        
 
     jobs = kwargs.get("jobs", 4)
-    cmd_parts = [
-        "snakemake",
-        f"--snakefile {get_snakefile('./pipeline/rules/benchmark.smk')}",
-        f"--jobs {jobs}",
-        "--rerun-incomplete",
-        "--scheduler greedy",
-        "--show-failed-logs",
-        "--groups group1=1",
-        "--config",
-        f"database_dir='{dbdir}'",
-        f"results='{results}'",
-        f"batch='{batch}'",
-        f"ani='{tani_params}'",
-        f"aai='{taai_params}'",
-        f"api='{tapi_params}'",
-        f"level='{level}'",
-    ]
+    config_overrides = {
+        "database_dir": dbdir,
+        "results": results,
+        "batch": str(batch),
+        "ani": tani_params,
+        "aai": taai_params,
+        "api": tapi_params,
+        "level": level,
+    }
 
-    if snakemake_args:
-        if snakemake_args[0].startswith("-"):
-            cmd_parts.extend(snakemake_args)
-        else:
-            cmd_parts.append("--")
-            cmd_parts.extend(snakemake_args)
+    cmd = _build_snakemake_cmd(
+        snakefile=get_snakefile("./pipeline/rules/benchmark.smk"),
+        jobs=jobs,
+        configfile=CONFIG,
+        config_overrides=config_overrides,
+        extra_args=snakemake_args,
+        dryrun=kwargs.get("dryrun", False),
+    )
 
-    cmd = " ".join(cmd_parts)
+    logger.info(" ".join(cmd))
+    _run_command(cmd)
 
-    logger.info(cmd)
-    logger.debug("Executing: %s" % cmd)
-    try:
-        subprocess.check_call(cmd, shell=True)
-    except subprocess.CalledProcessError as e:
-        # removes the traceback
-        logger.critical(e)
-        exit(1)
 
 cli.add_command(utils)
 

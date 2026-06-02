@@ -11,4 +11,6 @@ databases/*
 example/*
 meta/*
 vcat.egg-info/*
-vcat_dev/*
+vcat_dev/**.egg-info/
+__pycache__/
+.pytest_cache/

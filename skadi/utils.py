@@ -276,11 +276,11 @@ def compute_cov(alns: List[pl.Series]) -> float:
 
 
 # ** Process the grouped data **
-def ani_summary(infile: Union[str, StringIO], 
-                all: bool, 
+def ani_summary(infile: Union[str, StringIO],
+                all: bool,
                 header: list,
                 dbdir: str | None = None,
-                level: str | None = None) -> Union[Any, Exception]:
+                level: str | None = None) -> pl.DataFrame:
     """
     Robust per-group ANI summary that avoids list[f64] issues in Polars by
     grouping via pandas and computing scalar aggregates per (query,target).
@@ -402,7 +402,7 @@ def ani_summary(infile: Union[str, StringIO],
             return out
 
     except Exception as e:
-        return e
+        raise RuntimeError(f"ani_summary failed: {e}") from e
 
 
 # aai calculation code
@@ -497,7 +497,7 @@ def axi_summary(
     kind: str,
     all: bool,
     level: str | None = None,
-) -> Union[pl.DataFrame, Exception]:
+) -> pl.DataFrame:
     # ps: optimized for speed not for readability
 
     taxdb = TaxDb(
@@ -662,7 +662,7 @@ def axi_summary(
         return pl.concat(results)
 
     except Exception as e:
-        return e
+        raise RuntimeError(f"axi_summary failed: {e}") from e
 
 
 def index_m8(input: Union[str, Path],
@@ -676,35 +676,29 @@ def index_m8(input: Union[str, Path],
     index = defaultdict(list)
 
     with open(input, "r+b") as f:
-        mmapped_file = mmap.mmap(f.fileno(), 0, access=mmap.ACCESS_READ)
-        total_size = len(mmapped_file)
+        with mmap.mmap(f.fileno(), 0, access=mmap.ACCESS_READ) as mmapped_file:
+            total_size = len(mmapped_file)
 
-        pbar = tqdm(unit="lines")
+            pbar = tqdm(unit="lines")
 
-        pos = 0
-        while pos < total_size:
-            end = mmapped_file.find(b"\n", pos)
-            if end == -1:  # End of file
-                break
+            pos = 0
+            while pos < total_size:
+                end = mmapped_file.find(b"\n", pos)
+                if end == -1:  # End of file
+                    break
 
-            line = mmapped_file[pos:end]  # Process as bytes
-            key = line.split(b"\t", 1)[0]
-            if kind == "axi":
-                key = key.rsplit(b"_", 1)[0]  # Extract key as bytes
-            index[key.decode()].append(int(pos))  # Store file offset
+                line = mmapped_file[pos:end]  # Process as bytes
+                key = line.split(b"\t", 1)[0]
+                if kind == "axi":
+                    key = key.rsplit(b"_", 1)[0]  # Extract key as bytes
+                index[key.decode()].append(int(pos))  # Store file offset
 
-            pos = end + 1  # Move to the next line
-            pbar.update(1)
+                pos = end + 1  # Move to the next line
+                pbar.update(1)
 
-    pbar.close()
+            pbar.close()
 
-    pbar = tqdm(unit="records")
-    index2 = defaultdict(list)
-    for k, (_, byte_offsets) in enumerate(index.items()):
-        pbar.update(1)
-        index2[k] = byte_offsets
-
-    return index2
+    return index
 
 
 def load_chunk(
@@ -718,17 +712,16 @@ def load_chunk(
     """
     string_dump = ""
     with open(input, "r+b") as fh:
-        mmapped_file = mmap.mmap(fh.fileno(), 0, access=mmap.ACCESS_READ)
+        with mmap.mmap(fh.fileno(), 0, access=mmap.ACCESS_READ) as mmapped_file:
+            records = list(range(recstart, recend))
+            # Retrieve lines at given offsets
+            for rec in records:
+                for pos in index[rec]:
+                    end = mmapped_file.find(b"\n", pos)  # Find the end of the line
+                    if end == -1:  # Handle last line case
+                        end = len(mmapped_file)
 
-        records = list(range(recstart, recend))
-        # Retrieve lines at given offsets
-        for rec in records:
-            for pos in index[rec]:
-                end = mmapped_file.find(b"\n", pos)  # Find the end of the line
-                if end == -1:  # Handle last line case
-                    end = len(mmapped_file)
-
-                string_dump += mmapped_file[pos:end].decode() + "\n"
+                    string_dump += mmapped_file[pos:end].decode() + "\n"
 
     return StringIO(string_dump)
 
