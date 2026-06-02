@@ -4,11 +4,11 @@
   <img alt="Fallback image description" src="./docs/_source/_static/figures/skadi_logo_dark.svg">
 </picture>
 
-![GitHub](https://img.shields.io/github/license/Yasas1994/skadi) 
-![GitHub last commit (branch)](https://img.shields.io/github/last-commit/Yasas1994/skadi/main?color=8a35da)
+![License](https://img.shields.io/github/license/Yasas1994/skadi)
+![GitHub last commit](https://img.shields.io/github/last-commit/Yasas1994/skadi/main?color=8a35da)
+![Python](https://img.shields.io/badge/python-3.11-blue)
 
-
-SKADI: Sequence-based Knowledgebase for Annotation, Detection, and Identification
+# SKADI: Sequence-based Knowledgebase for Annotation, Detection, and Identification
 
 > [!NOTE] 
 > SKADI [documentation](https://skadi.readthedocs.io/en/latest/
