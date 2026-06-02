@@ -275,6 +275,30 @@ def compute_cov(alns: List[pl.Series]) -> float:
     return np.round(np.sum(np.diff(merged)) / alns[2][0], 2)
 
 
+def compute_cov_bidirectional(
+    qstart: pl.Series,
+    qend: pl.Series,
+    qlen: pl.Series,
+    tstart: pl.Series,
+    tend: pl.Series,
+    tlen: pl.Series,
+) -> tuple[float, float, float]:
+    """Compute query coverage, target coverage, and symmetric coverage.
+
+    Args:
+        qstart, qend, qlen: Query alignment coordinates and length.
+        tstart, tend, tlen: Target alignment coordinates and length.
+
+    Returns:
+        (qcov, tcov, scov) where scov is the geometric mean of qcov and tcov.
+    """
+    qcov = compute_cov([qstart, qend, qlen])
+    tcov = compute_cov([tstart, tend, tlen])
+    # Geometric mean penalizes extreme asymmetry (e.g., small query vs large target)
+    scov = round((qcov * tcov) ** 0.5, 4) if qcov > 0 and tcov > 0 else 0.0
+    return qcov, tcov, scov
+
+
 # ** Process the grouped data **
 def ani_summary(infile: Union[str, StringIO],
                 all: bool,
@@ -302,11 +326,20 @@ def ani_summary(infile: Union[str, StringIO],
             pl.col("tlen").cast(pl.Int64),
             pl.col("qstart").cast(pl.Int64),
             pl.col("qend").cast(pl.Int64),
+            pl.col("tstart").cast(pl.Int64),
+            pl.col("tend").cast(pl.Int64),
+            pl.col("evalue").cast(pl.Float64),
+            pl.col("bits").cast(pl.Float64),
         )
 
-        # drop rows missing numeric values
+        # Filter out low-quality alignments
+        # Minimum 100 bp alignment, evalue < 1e-3, bitscore > 50
         mmseqs_nuc = mmseqs_nuc.filter(
-            pl.col("alnlen").is_not_null() & pl.col("fident").is_not_null()
+            pl.col("alnlen").is_not_null()
+            & pl.col("fident").is_not_null()
+            & (pl.col("alnlen") >= 100)
+            & (pl.col("evalue") <= 1e-3)
+            & (pl.col("bits") >= 50)
         )
 
         if (dbdir and level):
@@ -367,13 +400,17 @@ def ani_summary(infile: Union[str, StringIO],
                 ani = float((alnlen * fident).sum() / alnlen_sum)
             ani = round(ani, 3)
 
-            # compute qcov using existing compute_cov (expects list of Series)
+            # compute qcov, tcov, and symmetric coverage
             try:
-                qcov = compute_cov([gpl["qstart"], gpl["qend"], gpl["qlen"]])
+                qcov, tcov, scov = compute_cov_bidirectional(
+                    gpl["qstart"], gpl["qend"], gpl["qlen"],
+                    gpl["tstart"], gpl["tend"], gpl["tlen"],
+                )
             except (ValueError, IndexError, ZeroDivisionError):
-                qcov = 0.0
+                qcov, tcov, scov = 0.0, 0.0, 0.0
 
-            tani = round(ani * qcov, 4)
+            # Use symmetric coverage for tani to penalize asymmetric alignments
+            tani = round(ani * scov, 4)
 
             rows.append(
                 {
@@ -384,13 +421,15 @@ def ani_summary(infile: Union[str, StringIO],
                     "taxlineage": taxlineage,
                     "taxid": taxid,
                     "qcov": qcov,
+                    "tcov": tcov,
+                    "scov": scov,
                     "ani": ani,
                     "tani": tani,
                 }
             )
 
         out = pl.DataFrame(rows) if rows else pl.DataFrame(
-            {"query":[],"target":[],"qlen":[],"tlen":[],"taxlineage":[],"taxid":[],"qcov":[],"ani":[],"tani":[]}
+            {"query":[],"target":[],"qlen":[],"tlen":[],"taxlineage":[],"taxid":[],"qcov":[],"tcov":[],"scov":[],"ani":[],"tani":[]}
         )
 
         if not all:
