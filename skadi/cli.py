@@ -2,6 +2,7 @@ import click
 import subprocess
 import multiprocessing
 import os
+import re
 import sys
 import yaml
 import polars as pl
@@ -11,6 +12,31 @@ from tqdm.contrib.logging import logging_redirect_tqdm
 from skadi.utils import ani_summary, axi_summary, index_m8, load_chunk
 from .color_logger import logger
 from importlib.metadata import version, PackageNotFoundError
+
+
+# Characters that are dangerous in shell arguments or paths
+_UNSAFE_PATH_CHARS = re.compile(r"[;&|`$(){}\[\]\\\n\r\x00]")
+
+
+def _validate_path(path: str | os.PathLike, name: str = "path") -> str:
+    """Validate a user-provided path for suspicious characters.
+
+    Args:
+        path: The path to validate.
+        name: Human-readable name for error messages.
+
+    Returns:
+        The path as a string.
+
+    Raises:
+        click.BadParameter: If the path contains unsafe characters.
+    """
+    path_str = str(path)
+    if _UNSAFE_PATH_CHARS.search(path_str):
+        raise click.BadParameter(
+            f"{name} contains unsafe characters: {path_str!r}"
+        )
+    return path_str
 
 
 # Define the directory containing the pipeline files
@@ -320,6 +346,10 @@ def contigs(input, output, database, jobs, batch, snakemake_args, dryrun, **kwar
 
     Most snakemake arguments can be appended to the command for more info see 'snakemake --help'
     """
+    _validate_path(input, name="input")
+    _validate_path(output, name="output")
+    if database:
+        _validate_path(database, name="database")
 
     logger.info(f"skadi version: {__version__}")
     conf = load_configfile(CONFIG)
@@ -459,6 +489,12 @@ def reads(input, input2, output, database, jobs, profile, dryrun, bbmap_args, pi
 
     Most snakemake arguments can be appended to the command for more info see 'snakemake --help'
     """
+    _validate_path(input, name="input")
+    if input2:
+        _validate_path(input2, name="input2")
+    _validate_path(output, name="output")
+    if database:
+        _validate_path(database, name="database")
 
     logger.info(f"skadi version: {__version__}")
     conf = load_configfile(CONFIG)
@@ -517,6 +553,8 @@ def reads(input, input2, output, database, jobs, profile, dryrun, bbmap_args, pi
 @click.argument("snakemake_args", nargs=-1, type=click.UNPROCESSED)
 def preparedb(db_dir, jobs, snakemake_args):
     """Executes a snakemake workflow to download and build the databases"""
+    _validate_path(db_dir, name="db-dir")
+
     logger.info("Building taxdb")
     cmd = _build_snakemake_cmd(
         snakefile=get_snakefile("./pipeline/rules/taxdump.smk"),
@@ -566,6 +604,7 @@ default_db, choices, default_url = format_databases(config=CONFIG_CONTENT)
 @click.argument("snakemake_args", nargs=-1, type=click.UNPROCESSED)
 def downloaddb(db_dir, dbversion, snakemake_args):
     "pull pre-built databases from a remote server"
+    _validate_path(db_dir, name="db-dir")
 
     logger.info(f"downloading {dbversion} database from remote server")
     cmd = _build_snakemake_cmd(
@@ -682,6 +721,12 @@ def ani(input, output, header, level, dbdir, all, batch, **kwargs):
     calculates the average nucleotide identity and coverage of a query sequence
     to the best
     """
+    _validate_path(input, name="input")
+    if output:
+        _validate_path(os.path.dirname(output) or ".", name="output directory")
+    if dbdir:
+        _validate_path(dbdir, name="dbdir")
+
     if (level or dbdir) and not (level and dbdir):
         logger.error(f"{level} and {dbdir} are mutually inclusive")
         sys.exit(1)
@@ -867,6 +912,12 @@ def aai(
     calculates the average aminoacid identity and coverage of a query sequence
     to the genomes in the target database
     """
+    _validate_path(input, name="input")
+    _validate_path(gff, name="gff")
+    _validate_path(dbdir, name="dbdir")
+    if output:
+        _validate_path(os.path.dirname(output) or ".", name="output directory")
+
     CHUNK_SIZE = batch
     THRESHOLDS = {
         "genus": taaig,
@@ -1049,6 +1100,12 @@ def api(input, output, header, tapif, tapio, tapic, tapip, tapik, batch, dbdir, 
     calculates the average profile identity and coverage of a query sequence
     to the genomes in the target database
     """
+    _validate_path(input, name="input")
+    _validate_path(gff, name="gff")
+    _validate_path(dbdir, name="dbdir")
+    if output:
+        _validate_path(os.path.dirname(output) or ".", name="output directory")
+
     CHUNK_SIZE = batch
     THRESHOLDS = {
         "family": tapif,
@@ -1189,6 +1246,8 @@ def fragment(**kwargs):
     """
     generates nucleotide framents from input multi fasta file (comming soon)
     """
+    _validate_path(kwargs.get("input"), name="input")
+    _validate_path(kwargs.get("output"), name="output")
     from skadi.frgment import split_core
     split_core(**kwargs)
 
@@ -1342,6 +1401,9 @@ def benchmark(dbdir, results, batch, level, snakemake_args, **kwargs):
 
     skadi utils benchmark --dbdir <path> --results <results_dir>
     """
+    _validate_path(dbdir, name="dbdir")
+    _validate_path(results, name="results")
+
     logger.info(f"skadi version: {__version__}")
     taai_params = ""
     tapi_params = ""
