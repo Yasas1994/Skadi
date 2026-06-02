@@ -25,7 +25,7 @@ cat testing/gut_jaeger/nuc/gut_jaeger_virus_seqs_fasta_genome_ani.tsv \
 
 ## Citation
 
-If you use **vcat**, please cite the underlying tools:
+If you use **skadi**, please cite the underlying tools:
 
 ```text
 [MMSEQS2] MMseqs2 enables sensitive protein sequence searching for the analysis of massive data sets.

@@ -13,7 +13,7 @@ import click
 from pathlib import Path
 from taxopy.core import TaxDb
 from taxopy import Taxon
-from vcat.color_logger import logger
+from skadi.color_logger import logger
 
 
 def trim_lineage(taxid: int, taxdb: TaxDb, taxomic_level: str = "species") -> int:

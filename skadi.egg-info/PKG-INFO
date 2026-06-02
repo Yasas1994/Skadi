@@ -1,3 +1,26 @@
+Metadata-Version: 2.4
+Name: skadi
+Version: 0.0.4
+Summary: SKADI: Sequence-based Knowledgebase for Annotation, Detection, and Identification
+Home-page: https://github.com/Yasas94/skadi
+Author: Yasas Wijesekara
+Author-email: yasas.Wijesekara@uni-greifswald.de
+License: BSD-3
+Classifier: Topic :: Scientific/Engineering :: Bio-Informatics
+Description-Content-Type: text/markdown
+License-File: LICENSE
+Requires-Dist: gffpandas
+Dynamic: author
+Dynamic: author-email
+Dynamic: classifier
+Dynamic: description
+Dynamic: description-content-type
+Dynamic: home-page
+Dynamic: license
+Dynamic: license-file
+Dynamic: requires-dist
+Dynamic: summary
+
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="./docs/_source/_static/figures/skadi_logo_dark.svg">
   <source media="(prefers-color-scheme: light)" srcset="./docs/_source/_static/figures/skadi_logo_light.svg">

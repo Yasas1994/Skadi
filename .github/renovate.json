@@ -1,0 +1,36 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": [
+    "config:recommended",
+    ":dependencyDashboard",
+    ":semanticCommits"
+  ],
+  "labels": ["dependencies"],
+  "schedule": ["before 5am on monday"],
+  "timezone": "Europe/Berlin",
+  "packageRules": [
+    {
+      "matchUpdateTypes": ["minor", "patch", "pin", "digest"],
+      "automerge": true,
+      "automergeType": "pr",
+      "platformAutomerge": true
+    },
+    {
+      "matchUpdateTypes": ["major"],
+      "automerge": false
+    },
+    {
+      "matchManagers": ["github-actions"],
+      "groupName": "GitHub Actions",
+      "schedule": ["before 5am on the first day of the month"]
+    },
+    {
+      "matchManagers": ["conda", "pip_requirements", "setup-cfg", "pyproject"],
+      "groupName": "Python dependencies",
+      "schedule": ["before 5am on monday"]
+    }
+  ],
+  "pip-compile": {
+    "fileMatch": ["^requirements\\.txt$", "^requirements/.*\\.txt$"]
+  }
+}

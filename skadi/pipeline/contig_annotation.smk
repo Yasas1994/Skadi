@@ -57,7 +57,7 @@ def get_mem_mb(wildcards=None, attempt=1):
 
     Priority:
       1. User config:   config["mem_mb"]
-      2. Environment:   $VCAT_MEM_MB
+      2. Environment:   $SKADI_MEM_MB
       3. Auto-detect:   75 % of total system RAM
       4. Hard fallback: 8_196 MiB
     """
@@ -67,7 +67,7 @@ def get_mem_mb(wildcards=None, attempt=1):
         return int(user_mb)
 
     # 2. Environment override
-    env_mb = os.environ.get("VCAT_MEM_MB")
+    env_mb = os.environ.get("SKADI_MEM_MB")
     if env_mb is not None:
         return int(env_mb)
 
@@ -394,7 +394,7 @@ rule cal_ani:
         ani   = ANI_PARAMS,
     shell:
         """
-        vcat utils ani -i {input} \
+        skadi utils ani -i {input} \
             --header query,target,theader,fident,qlen,tlen,alnlen,mismatch,gapopen,qstart,qend,tstart,tend,evalue,bits,taxid,taxname,taxlineage \
             --batch {params.batch} {params.ani} \
             > {output} 2> {log}
@@ -417,7 +417,7 @@ rule cal_aai:
         db    = DBDIR,
     shell:
         """
-        vcat utils aai -i {input.m8} -g {input.gff} -d {params.db} \
+        skadi utils aai -i {input.m8} -g {input.gff} -d {params.db} \
             --header query,target,theader,fident,qlen,tlen,alnlen,mismatch,gapopen,qstart,qend,tstart,tend,evalue,bits,taxid,taxname,taxlineage \
             --batch {params.batch} {params.aai} \
             > {output} 2> {log}
@@ -440,7 +440,7 @@ rule cal_api:
         db    = DBDIR,
     shell:
         """
-        vcat utils api -i {input.m8} -g {input.gff} -d {params.db} \
+        skadi utils api -i {input.m8} -g {input.gff} -d {params.db} \
             --header query,target,theader,fident,qlen,tlen,alnlen,mismatch,gapopen,qstart,qend,tstart,tend,evalue,bits,taxid,taxname,taxlineage \
             --batch {params.batch} {params.api} \
             > {output} 2> {log}

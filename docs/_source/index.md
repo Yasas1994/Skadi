@@ -1,9 +1,9 @@
-<!-- ```{figure} ./_static/figures/vcat_logo.png
+<!-- ```{figure} ./_static/figures/skadi_logo.png
 ``` -->
 
 # Virus contig annotation tool
 
-The **Virus contig annotation tool (Vcat)** is a simple, homology-based application designed to:
+**SKADI: Sequence-based Knowledgebase for Annotation, Detection, and Identification** is a simple, homology-based application designed to:
 
 - provide taxonomic annotations for viral contigs  
 - map reads to virus contigs and support downstream analyses such as tANI/txAAI calculations and visualizations.
@@ -15,11 +15,11 @@ The **Virus contig annotation tool (Vcat)** is a simple, homology-based applicat
 :caption: Contents
 
 installation
-running-vcat-contigs
-running-vcat-reads
+running-skadi-contigs
+running-skadi-reads
 annotation-pipeline
 changelog
 extras-and-citation
 ```
 
-click [here](https://github.com/Yasas1994/vcat.git) to go back to the source code.
+click [here](https://github.com/Yasas1994/skadi.git) to go back to the source code.

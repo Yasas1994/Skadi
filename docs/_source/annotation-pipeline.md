@@ -1,22 +1,22 @@
 # Virus contig annotation pipeline
 
-`Vcat` annotates viral contigs by sequentially comparing query sequences against nucleotide, protein, and profile databases using `mmseqs2`. The annotation process includes three stages.
+`SKADI` annotates viral contigs by sequentially comparing query sequences against nucleotide, protein, and profile databases using `mmseqs2`. The annotation process includes three stages.
 
-```{image} _static/figures/vcat_workflow_light.svg
-:name: fig-vcat-workflow-light
+```{image} _static/figures/skadi_workflow_light.svg
+:name: fig-skadi-workflow-light
 :align: center
 :class: only-light
 ```
 
-```{image} _static/figures/vcat_workflow_dark.svg
-:name: fig-vcat-workflow-dark
+```{image} _static/figures/skadi_workflow_dark.svg
+:name: fig-skadi-workflow-dark
 :align: center
 :class: only-dark
 ```
 
 #### Nucleotide database comparison
 
-Query sequences are first compared to the nucleotide database using mmseqs_blastn. Optionally, users can switch to mmseqs_tblastx for higher sensitivity at the cost of longer run-times. vcat then tries to find the genome with the highest nucleotide similarity to the query seqeunce by approximating the ANIs between the query and genomes in the database. If the total ANI between the query and the targert is greater than 0.81, we assign the query to target's species. Target's genus is trnsfered to the query, if the tANI between them is between 0.49 and 0.81.
+Query sequences are first compared to the nucleotide database using mmseqs_blastn. Optionally, users can switch to mmseqs_tblastx for higher sensitivity at the cost of longer run-times. skadi then tries to find the genome with the highest nucleotide similarity to the query seqeunce by approximating the ANIs between the query and genomes in the database. If the total ANI between the query and the targert is greater than 0.81, we assign the query to target's species. Target's genus is trnsfered to the query, if the tANI between them is between 0.49 and 0.81.
 
 
 Here, **total ANI (tANI)** is defined as follows.
@@ -115,11 +115,11 @@ $$
 #### Database Generation Pipeline
 
 
-The vcat database generation pipeline automates the creation of comprehensive viral nucleotide, protein, and profile databases. The process includes the following steps:
+The skadi database generation pipeline automates the creation of comprehensive viral nucleotide, protein, and profile databases. The process includes the following steps:
 
 **1. ICTV metadata parsing and genome download**
 
-vcat parses the ICTV Metadata Resource and downloads all viral genomes and proteins from NCBI GenBank.
+skadi parses the ICTV Metadata Resource and downloads all viral genomes and proteins from NCBI GenBank.
 
 **2. Custom taxonomy creation**
 

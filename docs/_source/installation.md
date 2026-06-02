@@ -1,44 +1,44 @@
 ## Installation
 
 
-currently you can install the development version of vcat with following steps.
+currently you can install the development version of skadi with following steps.
 
 
 #### Installing with conda/mamba
 clone the git repositoty and use the environment.yaml file to create a conda environemnt.
-alternatively you can also use pixi. Then, install the vcat python package into the conda 
+alternatively you can also use pixi. Then, install the skadi python package into the conda 
 environment you just created.
 
 ```bash
-git clone https://github.com/Yasas1994/vcat.git
-cd vcat
+git clone https://github.com/Yasas1994/skadi.git
+cd skadi
 mamba create -f environment.yml
-mamba activate vcat
+mamba activate skadi
 pip install .
-vcat --help
+skadi --help
 ```
 
 
 
-#### Running vcat with singularity
+#### Running skadi with singularity
 clone the git reposity and used the Apptainer definition file to build a singularity container.
 
 ```bash
-git clone https://github.com/Yasas1994/vcat.git
-cd vcat
-apptainer build vcat.sif Apptainer
-apptainer run vcat.sif vcat --help
+git clone https://github.com/Yasas1994/skadi.git
+cd skadi
+apptainer build skadi.sif Apptainer
+apptainer run skadi.sif skadi --help
 ```
 
 
-if everything goes soothly, you should see vcat help on the the terminal.
+if everything goes soothly, you should see skadi help on the the terminal.
 
 ```text
-Usage: vcat [OPTIONS] COMMAND [ARGS]...
+Usage: skadi [OPTIONS] COMMAND [ARGS]...
 
-  vcat: a command-line tool-kit for adding ICTV taxonomy annotations to virus
+  skadi: a command-line tool-kit for adding ICTV taxonomy annotations to virus
   contigs, mapping reads to virus genomes and much more.
-  (https://github.com/Yasas1994/vcat)
+  (https://github.com/Yasas1994/skadi)
 
 Options:
   --version   Show the version and exit.
@@ -60,11 +60,11 @@ Currently, msl39v and masl40v1 are available to download
 
 ```bash
 
-vcat downloaddb --dbversion masl40v1 -d <path-to-save-the-database> --cores 1
+skadi downloaddb --dbversion masl40v1 -d <path-to-save-the-database> --cores 1
 ```
 
 optionally, you can also build it yourself with the following command.
 
 ```bash
-vcat preparedb -d <path-to-save-the-database>
+skadi preparedb -d <path-to-save-the-database>
 ```

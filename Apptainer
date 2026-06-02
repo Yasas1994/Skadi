@@ -4,7 +4,7 @@ Stage: build
 
 %files
   ./scripts /app/scripts
-  ./vcat /app/vcat
+  ./skadi /app/skadi
   ./environment.yml /app
   ./LICENSE /app
   ./MANIFEST.in /app
@@ -17,16 +17,16 @@ Stage: build
   #  build-essential \
   #  g++ \
   #  && apt-get clean && rm -rf /var/lib/apt/lists/*
-  conda env create -n vcat --file /app/environment.yml && \
+  conda env create -n skadi --file /app/environment.yml && \
   conda clean --all --yes
-  conda run -n vcat pip install --root-user-action=ignore /app
+  conda run -n skadi pip install --root-user-action=ignore /app
 
 
 %environment
     export TINI_SUBREAPER=1
     export PATH=/opt/conda/bin:$PATH
     source /opt/conda/etc/profile.d/conda.sh
-    conda activate vcat
+    conda activate skadi
 
 #%runscript
     # Run script when apptainer exec or run is called

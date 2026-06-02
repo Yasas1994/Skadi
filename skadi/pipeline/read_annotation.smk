@@ -113,9 +113,9 @@ rule all:
         bam      = expand(f"{OUTDIR}/{{sample}}.sorted.bam",      sample=SAMPLE_NAMES),
         bai      = expand(f"{OUTDIR}/{{sample}}.sorted.bam.bai",  sample=SAMPLE_NAMES),
         pileup   = expand(f"{OUTDIR}/{{sample}}.pileup.tsv",      sample=SAMPLE_NAMES),
-        nuc      = expand(f"{OUTDIR}/{{sample}}.vcat_nuc.tsv",    sample=SAMPLE_NAMES),
+        nuc      = expand(f"{OUTDIR}/{{sample}}.skadi_nuc.tsv",    sample=SAMPLE_NAMES),
         diamond  = expand(f"{OUTDIR}/{{sample}}.diamond.m8",       sample=SAMPLE_NAMES),
-        protein  = expand(f"{OUTDIR}/{{sample}}.vcat_protein.tsv", sample=SAMPLE_NAMES),
+        protein  = expand(f"{OUTDIR}/{{sample}}.skadi_protein.tsv", sample=SAMPLE_NAMES),
 
 
 # =============================================================================
@@ -196,7 +196,7 @@ rule summarize_nuc_mapping:
     input:
         tsv = f"{OUTDIR}/{{sample}}.pileup.tsv"
     output:
-        tsv = f"{OUTDIR}/{{sample}}.vcat_nuc.tsv"
+        tsv = f"{OUTDIR}/{{sample}}.skadi_nuc.tsv"
     params:
         database_dir = DBDIR,
         summary_args = lambda wc: tool_args("summary_args")
@@ -260,7 +260,7 @@ rule summarize_protein_mapping:
     input:
         m8 = f"{OUTDIR}/{{sample}}.diamond.m8"
     output:
-        tsv = f"{OUTDIR}/{{sample}}.vcat_protein.tsv"
+        tsv = f"{OUTDIR}/{{sample}}.skadi_protein.tsv"
     params:
         ref_gff_path          = REF_GFF_PATH,
         genome2protein          = PROTEIN_2_GENOME,

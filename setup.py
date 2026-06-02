@@ -14,25 +14,25 @@ with open(path.join(this_directory, "README.md"), encoding="utf-8") as f:
 
 scripts = [path.join("scripts", i) for i in listdir(path.join(this_directory, "scripts")) if i.endswith(".py")]
 setup(
-    name="vcat",
+    name="skadi",
     version="0.0.4",
-    url="https://github.com/Yasas94/vcat",
+    url="https://github.com/Yasas94/skadi",
     license=__license__,
     author=__author__,
     author_email=__email__,
     zip_safe=False,
-    description="Vcat - workflows for transferring taxonomic annotations to virus contigs",
+    description="SKADI: Sequence-based Knowledgebase for Annotation, Detection, and Identification",
     long_description=long_description,
     long_description_content_type="text/markdown",
-    packages=["vcat"],
+    packages=["skadi"],
     include_package_data=True,
     package_data={
-        "vcat": ["pipeline/*", "pipeline/rules/*"],
+        "skadi": ["pipeline/*", "pipeline/rules/*"],
     },
     data_files=[(".", ["README.md", "LICENSE", "MANIFEST.in"])],
     install_requires=["gffpandas"],
     # install via conda: click, pandas, pyyaml, snakemake
-    entry_points={"console_scripts": ["vcat = vcat.cli:cli"]},
+    entry_points={"console_scripts": ["skadi = skadi.cli:cli"]},
     classifiers=["Topic :: Scientific/Engineering :: Bio-Informatics"],
     scripts=scripts,
 )

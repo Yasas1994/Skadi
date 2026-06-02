@@ -12,7 +12,7 @@ import requests
 import openpyxl
 import click
 
-from vcat.color_logger import logger
+from skadi.color_logger import logger
 
 # https://www.ncbi.nlm.nih.gov/nuccore/PP467602
 NCBI_EFETCH_URL = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi"

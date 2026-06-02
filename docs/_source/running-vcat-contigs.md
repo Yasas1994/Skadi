@@ -2,21 +2,21 @@
 
 This workflow can be used to transfer taxonomic annotations to virus contigs. The workflow is written in 
 Snakemake. So, if you interupt it in the middle you can start again from where you left off. following command
-runs vcat with default parameters.
+runs skadi with default parameters.
 
 ```bash
-vcat contigs -i <input>.fasta -o outdir
+skadi contigs -i <input>.fasta -o outdir
 ```
 **Advance options**
 
-However, you can customize vcat with following cmd line options. For example, consider setting `--nuc-search mmseqs_tblastx`
+However, you can customize skadi with following cmd line options. For example, consider setting `--nuc-search mmseqs_tblastx`
 for more sensitive tANI calculations.
 
 ```bash
 Options:
-  -i, --input PATH                input file/s to run vcat on  [required]
-  -o, --output PATH               dir to store vcat results  [required]
-  -d, --database PATH             dir to vcat database
+  -i, --input PATH                input file/s to run skadi on  [required]
+  -o, --output PATH               dir to store skadi results  [required]
+  -d, --database PATH             dir to skadi database
   --nuc_search [blastn|tbalstx|mmseqs_blastn|mmseqs_tblastx]
                                   nucelotide search algorithm (blastn,
                                   tblastx, mmseqs_blastn, mmseqs_tblastx).
@@ -92,11 +92,11 @@ outdir/
 
 
 ```{note}
-As a rough guideline, it takes around **4 hours** to run vcat on the ICTV Taxonomy challenge dataset on a typical laptop.
+As a rough guideline, it takes around **4 hours** to run skadi on the ICTV Taxonomy challenge dataset on a typical laptop.
 ```
-### Vcat output
+### SKADI output
 
-vcat reports the predicted taxonomic lineage for each query sequence in a structured results table. Each row corresponds to a single sequence and lists the assigned taxa across all ICTV hierarchical ranks, from realm down to species, whenever a match is detected.
+skadi reports the predicted taxonomic lineage for each query sequence in a structured results table. Each row corresponds to a single sequence and lists the assigned taxa across all ICTV hierarchical ranks, from realm down to species, whenever a match is detected.
 
 The Score column contains the computed similarity metric—tANI, txAAI, or txAPI, depending on which database level produced the annotation. These values range from 0 to 1, with 1.0 indicating a perfect match to a reference at that rank. The Method column specifies which comparison level generated the score:
 
@@ -108,7 +108,7 @@ api → profile HMM comparison (txAPI)
 
 Higher levels of the table represent broader taxonomic classifications (e.g., Realm, Kingdom, Phylum), while lower levels provide increasingly specific annotations (e.g., Family, Genus, Species). Empty fields indicate that no confident match was found at that particular rank.
 
-Together, these columns provide a detailed view of how confidently and at what resolution vcat was able to assign taxonomy to each query sequence.
+Together, these columns provide a detailed view of how confidently and at what resolution skadi was able to assign taxonomy to each query sequence.
 
 ```{csv-table} Taxonomic assignment summary
 :header: SequenceID,Seqlen,Score,Method,Realm (-viria),Realm_score,Subrealm (-vira),Subrealm_score,Kingdom (-virae),Kingdom_score,Subkingdom (-virites),Subkingdom_score,Phylum (-viricota),Phylum_score,Subphylum (-viricotina),Subphylum_score,Class (-viricetes),Class_score,Subclass (-viricetidae),Subclass_score,Order (-virales),Order_score,Suborder (-virineae),Suborder_score,Family (-viridae),Family_score,Subfamily (-virinae),Subfamily_score,Genus (-virus),Genus_score,Subgenus (-virus),Subgenus_score,Species (binomial),Species_score
@@ -136,13 +136,13 @@ CASDWV010000512,3611,1.0,ani,Riboviria,,,,Orthornavirae,,,,Lenarviricota,,,,Levi
 #### Calculate txAAI of query contigs to ICTV genomes
 
 ```bash
-vcat utils aai [OPTIONS] -i contigs.m8 -g contigs.gff -d [DBDIR]
+skadi utils aai [OPTIONS] -i contigs.m8 -g contigs.gff -d [DBDIR]
 ```
 
 #### Calculate tANI of query contigs to ICTV genomes
 
 ```bash
-vcat utils ani [OPTIONS] -i contigs.m8
+skadi utils ani [OPTIONS] -i contigs.m8
 ```
 
 #### Visualization of genome comparisons (coming soon)
@@ -150,17 +150,17 @@ vcat utils ani [OPTIONS] -i contigs.m8
 Create genome comparison plots (query sequence vs highly similar ICTV genomes):
 
 ```bash
-vcat utils visualize --ani --taxa <taxname> -i contigs.m8 -o outdir
+skadi utils visualize --ani --taxa <taxname> -i contigs.m8 -o outdir
 ```
 
 #### Phage contig annotation plots (coming soon)
 
 ```bash
-vcat utils visualize --phrogs -i contigs.fasta -o outdir
+skadi utils visualize --phrogs -i contigs.fasta -o outdir
 ```
 
 #### Provirus identification (coming soon)
 
 ```bash
-vcat utils provirus -i contigs.fasta -o outdir
+skadi utils provirus -i contigs.fasta -o outdir
 ```

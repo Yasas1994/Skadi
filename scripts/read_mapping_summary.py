@@ -8,7 +8,7 @@ import polars as pl
 import click
 from taxopy.core import TaxDb
 from taxopy import Taxon
-from vcat.color_logger import logger
+from skadi.color_logger import logger
 
 
 def get_acc2taxid_map(i:str) -> dict:
@@ -32,7 +32,7 @@ def get_acc2taxid_map(i:str) -> dict:
     "-d", "--dbdir",
     type=click.Path(exists=True, resolve_path=True),
     required=True,
-    help="vcat database root"
+    help="skadi database root"
 )
 @click.option(
     "-o", "--output",

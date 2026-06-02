@@ -21,7 +21,7 @@ from Bio.Seq import Seq
 from Bio.SeqRecord import SeqRecord
 from tqdm import tqdm
 
-from vcat.color_logger import logger
+from skadi.color_logger import logger
 
 
 def extract_regions(string):

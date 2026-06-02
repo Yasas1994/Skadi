@@ -13,7 +13,7 @@ COLORS = {
 }
 RESET = "\x1b[0m"
 
-PREFIX = "[vcat] "
+PREFIX = "[skadi] "
 
 
 class ColorFormatter(logging.Formatter):

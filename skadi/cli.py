@@ -8,7 +8,7 @@ import polars as pl
 from pathlib import Path
 from tqdm import tqdm
 from tqdm.contrib.logging import logging_redirect_tqdm
-from vcat.utils import ani_summary, axi_summary, index_m8, load_chunk
+from skadi.utils import ani_summary, axi_summary, index_m8, load_chunk
 from .color_logger import logger
 from importlib.metadata import version, PackageNotFoundError
 
@@ -21,7 +21,7 @@ CONFIG_CONTENT = yaml.safe_load(open(CONFIG, "r"))
 
 __version__ = ""
 try:
-    __version__ = version("vcat")
+    __version__ = version("skadi")
 except PackageNotFoundError:
     # package is not installed
     pass
@@ -108,9 +108,8 @@ def update_config(config_path, data: dict):
 @click.pass_context
 def cli(obj):
     r"""
-    Vcat: a command-line tool-kit for adding ICTV taxonomy annotations to virus contigs,
-    mapping reads to virus genomes and much more.
-    (https://github.com/Yasas1994/vcat)"""
+    SKADI: Sequence-based Knowledgebase for Annotation, Detection, and Identification
+    (https://github.com/Yasas1994/skadi)"""
     pass
 
 
@@ -118,8 +117,7 @@ def cli(obj):
     context_settings=dict(ignore_unknown_options=True, show_default=True),
     short_help="run contig annotation workflow",
     help="""
-    The Virus contig annotation tool (Vcat) is a straightforward, homology-based application designed to 
-    provide taxonomic annotations for viral contigs. 
+    SKADI: Sequence-based Knowledgebase for Annotation, Detection, and Identification
 
     """,
 )
@@ -127,21 +125,21 @@ def cli(obj):
     "-i",
     "--input",
     type=click.Path(dir_okay=True, writable=True, resolve_path=True),
-    help="input file/s to run vcat on",
+    help="input file/s to run skadi on",
     required=True,
 )
 @click.option(
     "-o",
     "--output",
     type=click.Path(dir_okay=True, writable=True, resolve_path=True),
-    help="dir to store vcat results",
+    help="dir to store skadi results",
     required=True,
 )
 @click.option(
     "-d",
     "--database",
     type=click.Path(dir_okay=True, writable=True, resolve_path=True),
-    help="dir to vcat database",
+    help="dir to skadi database",
     required=False,
 )
 @click.option(
@@ -282,12 +280,12 @@ def cli(obj):
 @click.argument("snakemake_args", nargs=-1, type=click.UNPROCESSED)
 def contigs(input, output, database, jobs, batch, snakemake_args, **kwargs):
     """
-    Runs Vcat pipeline on contigs
+    Runs SKADI pipeline on contigs
 
     Most snakemake arguments can be appended to the command for more info see 'snakemake --help'
     """
 
-    logger.info(f"vcat version: {__version__}")
+    logger.info(f"skadi version: {__version__}")
     conf = load_configfile(CONFIG)
     db_dir = database or conf["database_dir"]
     logger.info(f"database version: {Path(db_dir).name}")
@@ -354,40 +352,39 @@ def contigs(input, output, database, jobs, batch, snakemake_args, **kwargs):
     context_settings=dict(ignore_unknown_options=True, show_default=True),
     short_help="run read annotation workflow",
     help="""
-    The Virus contig annotation tool (Vcat) is a straightforward, homology-based application designed to 
-    provide taxonomy annotations to virus contigs and mapping reads directly to virus genomes.
+    SKADI: Sequence-based Knowledgebase for Annotation, Detection, and Identification
 
-    usage (paired-end): vcat reads [OPTIONS] -i1 pair1.fastq -i2 pair2.fastq -o mapping_results.tsv
+    usage (paired-end): skadi reads [OPTIONS] -i1 pair1.fastq -i2 pair2.fastq -o mapping_results.tsv
 
-    usage (single-end): vcat reads [OPTIONS] -i1 pair1.fastq -o mapping_results.tsv
+    usage (single-end): skadi reads [OPTIONS] -i1 pair1.fastq -o mapping_results.tsv
     """,
 )
 @click.option(
     "-in",
     "--input",
     type=click.Path(dir_okay=True, writable=True, resolve_path=True),
-    help="input read file1 to run vcat on",
+    help="input read file1 to run skadi on",
     required=True,
 )
 @click.option(
     "-in2",
     "--input2",
     type=click.Path(dir_okay=True, writable=True, resolve_path=True),
-    help="input read file2 (paired-end) to run vcat on",
+    help="input read file2 (paired-end) to run skadi on",
     required=False,
 )
 @click.option(
     "-o",
     "--output",
     type=click.Path(dir_okay=True, writable=True, resolve_path=True),
-    help="dir to store vcat results",
+    help="dir to store skadi results",
     required=True,
 )
 @click.option(
     "-d",
     "--database",
     type=click.Path(dir_okay=True, writable=True, resolve_path=True),
-    help="dir to vcat database",
+    help="dir to skadi database",
     required=False,
 )
 @click.option(
@@ -437,12 +434,12 @@ def contigs(input, output, database, jobs, batch, snakemake_args, **kwargs):
 @click.argument("snakemake_args", nargs=-1, type=click.UNPROCESSED)
 def reads(input, input2, output, database, jobs, profile, dryrun, bbmap_args, pileup_args, summary_args, snakemake_args):
     """
-    Runs Vcat pipeline on reads
+    Runs SKADI pipeline on reads
 
     Most snakemake arguments can be appended to the command for more info see 'snakemake --help'
     """
 
-    logger.info(f"vcat version: {__version__}")
+    logger.info(f"skadi version: {__version__}")
     conf = load_configfile(CONFIG)
     db_dir = database or conf["database_dir"]
     logger.info(f"database version: {Path(db_dir).name}")
@@ -655,7 +652,7 @@ def utils(obj):
             usage                                                                      
             -----                                                                      
 
-            vcat utils ani [OPTIONS] -i contigs.fasta
+            skadi utils ani [OPTIONS] -i contigs.fasta
 
         """,
 )
@@ -795,7 +792,7 @@ def ani(input, output, header, level, dbdir, all, batch, **kwargs):
             usage                                                                      
             -----                                                                      
 
-            vcat utils aai  [OPTIONS] -i contigs.fasta -g configs.gff -d [DBDIR]
+            skadi utils aai  [OPTIONS] -i contigs.fasta -g configs.gff -d [DBDIR]
 
         """,
 )
@@ -984,7 +981,7 @@ def aai(
             usage                                                                      
             -----                                                                      
 
-            vcat utils api  [OPTIONS] -i contigs.fasta -g configs.gff -d [DBDIR]
+            skadi utils api  [OPTIONS] -i contigs.fasta -g configs.gff -d [DBDIR]
 
         """,
 )
@@ -1159,7 +1156,7 @@ def api(input, output, header, tapif, tapio, tapic, tapip, tapik, batch, dbdir, 
             usage                                                                      
             -----                                                                      
 
-            vcat utils fragment  [OPTIONS] -i contigs.fasta -o fragments_contig.fasta
+            skadi utils fragment  [OPTIONS] -i contigs.fasta -o fragments_contig.fasta
 
         """,
 )
@@ -1230,7 +1227,7 @@ def fragment(**kwargs):
     """
     generates nucleotide framents from input multi fasta file (comming soon)
     """
-    from vcat.frgment import split_core
+    from skadi.frgment import split_core
     split_core(**kwargs)
 
 @utils.command(
@@ -1239,9 +1236,9 @@ def fragment(**kwargs):
     benchmark the performance by leaving out taxa. Suppose target X belongs to taxon Y 
     we remove all query hits to taxon Y and calculate the axi to the taxa belonging to remianing hits.
 
-    vcat contigs -i <genomes_used_to_build_db> -d <db> -o <results_dir>
+    skadi contigs -i <genomes_used_to_build_db> -d <db> -o <results_dir>
 
-    vcat utils benchmark --dbdir <path> --results <results_dir>
+    skadi utils benchmark --dbdir <path> --results <results_dir>
     """,
 )
 @click.option(
@@ -1255,7 +1252,7 @@ def fragment(**kwargs):
     "-r",
     "--results",
     type=click.Path(dir_okay=True, writable=True, resolve_path=True),
-    help="this directory should contain vcat results",
+    help="this directory should contain skadi results",
     required=True,
 )
 @click.option(
@@ -1378,12 +1375,12 @@ def benchmark(dbdir, results, batch, level, snakemake_args, **kwargs):
     benchmark the performance by leaving out taxa. Suppose target X belongs to taxon Y 
     we remove all query hits to taxon Y and calculate the axi to the taxa belonging to remianing hits.
 
-    vcat contigs -i <genomes_used_to_build_db> -d <db> -o <results_dir>
+    skadi contigs -i <genomes_used_to_build_db> -d <db> -o <results_dir>
 
-    vcat utils benchmark --dbdir <path> --results <results_dir>
+    skadi utils benchmark --dbdir <path> --results <results_dir>
     """
     pass
-    logger.info(f"vcat version: {__version__}")
+    logger.info(f"skadi version: {__version__}")
     taai_params = ""
     tapi_params = ""
     tani_params = ""

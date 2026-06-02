@@ -2,7 +2,7 @@
 """
 author: Yasas Wijesekara (yasas.wijesekara@uni-greifswald.de)
 
-Formats VCAT outputs to the ICTV taxonomy challenge result format.
+Formats SKADI outputs to the ICTV taxonomy challenge result format.
 """
 
 from pathlib import Path
@@ -10,7 +10,7 @@ import click
 import pandas as pd
 import taxopy
 
-from vcat.color_logger import logger
+from skadi.color_logger import logger
 
 
 @click.command(context_settings=dict(show_default=True))
@@ -27,7 +27,7 @@ from vcat.color_logger import logger
     "infile",
     type=click.Path(path_type=Path, exists=True, dir_okay=False),
     required=True,
-    help="VCAT result input file.",
+    help="SKADI result input file.",
 )
 @click.option(
     "-o",

@@ -5,7 +5,8 @@ from __future__ import annotations
 import json
 from collections import defaultdict
 from pathlib import Path
-
+import polars as pl
+import taxopy
 import click
 from Bio import SeqIO
 
@@ -110,7 +111,7 @@ def deduplicate_rows(rows: list[dict]) -> list[dict]:
 def write_tsv(rows: list[dict], output_file: Path) -> None:
     output_file.parent.mkdir(parents=True, exist_ok=True)
 
-    header = ["genome_id", "protein_id", "locus_tag", "gene", "product"]
+    header = ["genome_id ", "protein_id",  "locus_tag", "gene", "product"] # "species", "taxlineage", "ictv_id", "custom_taxid",    "domains"]
 
     with output_file.open("w", encoding="utf-8") as fh:
         fh.write("\t".join(header) + "\n")
@@ -142,6 +143,24 @@ def build_json_map(rows: list[dict]) -> dict[str, list[str]]:
     help="Output TSV file.",
 )
 @click.option(
+    "--genometotaxid",
+    required=True,
+    type=click.Path(exists=True, path_type=Path),
+    help="Input file mapping genome IDs to taxonomy IDs.",
+)
+@click.option(
+    "--ictv",
+    required=True, 
+    type=click.Path(exists=True, path_type=Path),
+    help="Input file with ICTV taxonomy information.",
+)
+@click.option(
+    "--taxdump",
+    required=True, 
+    type=click.Path(exists=True, path_type=Path),
+    help="Directory containing taxonomic dump files.",
+)
+@click.option(
     "--json-output",
     type=click.Path(path_type=Path),
     default=None,
@@ -169,6 +188,9 @@ def build_json_map(rows: list[dict]) -> dict[str, list[str]]:
 def cli(
     inputs: tuple[Path, ...],
     output_file: Path,
+    genometotaxid: Path,
+    ictv: Path,
+    taxdump: Path,
     json_output: Path | None,
     group_by: str,
     extensions: str,
@@ -179,16 +201,35 @@ def cli(
 
     INPUTS can be one or more GenBank files and/or directories.
     """
+    taxdump = Path(taxdump)
+    nodes = taxdump / "nodes.dmp"
+    names = taxdump / "names.dmp"
+    merged = taxdump / "merged.dmp"
+    # Load taxonomy DB
+    taxdb = taxopy.TaxDb(
+        nodes_dmp=str(nodes),
+        names_dmp=str(names),
+        merged_dmp=str(merged),
+    )
+
+
     exts = {x.strip().lower() for x in extensions.split(",") if x.strip()}
     gb_files = discover_genbank_files(list(inputs), exts)
-
+    genome2taxid_df = pl.read_csv(source = genometotaxid, separator="\t", has_header=True, columns=[0, 2], new_columns=["genome_id", "taxid"])
+    ictv_df = pl.read_csv(source = ictv, separator="\t", has_header=True)[["Virus name(s)","Virus GENBANK accession", "Genome coverage", "Genome", "Host source", "ICTV_ID"]]
+    ictv_df = ictv_df.rename({"Virus GENBANK accession": "genome_id", "ICTV_ID": "ictv_id", "Virus name(s)": "virus_name(s)", "Host source": "host_source", "Genome coverage": "genome_coverage", "Genome": "genome_type"})
+    
     if not gb_files:
         raise click.ClickException("No GenBank files found.")
 
     all_rows = []
+    template: dict[str, str| None] = {"genome_id": "", "protein_id": "", "locus_tag": "", "gene": "", "product": ""}
     for gb_file in gb_files:
         rows = extract_rows_from_file(gb_file, group_by=group_by)
-        all_rows.extend(rows)
+        for row in rows:
+            for key in template.keys():
+                template[key] = row.get(key, None)
+            all_rows.append(template.copy())
 
     if deduplicate:
         all_rows = deduplicate_rows(all_rows)
@@ -196,7 +237,22 @@ def cli(
     if not all_rows:
         raise click.ClickException("No CDS features with protein_id qualifiers were found.")
 
-    write_tsv(all_rows, output_file)
+    all_rows_df = pl.DataFrame(all_rows)
+    all_rows_df = all_rows_df.join(genome2taxid_df, on="genome_id", how="left")
+    all_rows_df = all_rows_df.join(ictv_df, on="genome_id", how="left")
+
+    def _taxon_lineage(x):
+        try:
+            return str(taxopy.Taxon(int(x), taxdb))
+        except Exception:
+            return "NA"
+        
+    all_rows_df = all_rows_df.with_columns(
+        pl.col("taxid").map_elements(_taxon_lineage, return_dtype=pl.String).alias("taxlineage"),
+    )
+    all_rows_df.write_csv(file=output_file, separator="\t")
+
+    # write_tsv(all_rows, output_file)
     click.echo(f"Wrote TSV: {output_file} ({len(all_rows)} rows)")
 
     if json_output is not None:

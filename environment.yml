@@ -1,4 +1,4 @@
-name: vcat
+name: skadi
 channels:
 - conda-forge
 - bioconda

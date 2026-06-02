@@ -734,7 +734,7 @@ def load_chunk(
 
 
 
-# bbmap.sh in=ERR2368798_1.fastq in2=ERR2368798_2.fastq path=/media/ssd/ICTV-TaxonomyChallenge/vcat/databases/VMR_latest/bbmap_index build=1 out=ERR2368798.sam covstats=ERR2368798.stats idfilter=0.7
+# bbmap.sh in=ERR2368798_1.fastq in2=ERR2368798_2.fastq path=/media/ssd/ICTV-TaxonomyChallenge/skadi/databases/VMR_latest/bbmap_index build=1 out=ERR2368798.sam covstats=ERR2368798.stats idfilter=0.7
 # samtools sort ERR2368798.sam -o ERR2368798.bam
 # samtools index -M ERR2368798.bam
 # less ERR2368798.stats  | awk -F "\t" '$2 > 1'

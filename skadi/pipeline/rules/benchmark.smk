@@ -45,7 +45,7 @@ rule cal_ani:
         level = LEVEOUT_LEVEL
     shell:
         """
-        vcat utils ani -i {input} -o {output} \
+        skadi utils ani -i {input} -o {output} \
         --header query,target,theader,fident,qlen,tlen,alnlen,mismatch,gapopen,qstart,qend,tstart,tend,evalue,bits,taxid,taxname,taxlineage \
         --level {params.level} --dbdir {params.db} --batch {params.batch} {params.ani} &> {log}
         """
@@ -65,7 +65,7 @@ rule cal_aai:
         level = LEVEOUT_LEVEL,
     shell:
         """
-        vcat utils aai -i {input.m8} -g {input.gff} -d {params.db} -o {output} --topk 300\
+        skadi utils aai -i {input.m8} -g {input.gff} -d {params.db} -o {output} --topk 300\
         --header query,target,theader,fident,qlen,tlen,alnlen,mismatch,gapopen,qstart,qend,tstart,tend,evalue,bits,taxid,taxname,taxlineage \
         --level {params.level} --dbdir {params.db} --batch {params.batch} {params.aai} &> {log}
         """
@@ -85,7 +85,7 @@ rule cal_api:
         level = LEVEOUT_LEVEL,
     shell:
         """
-        vcat utils api -i {input.m8} -g {input.gff} -d {params.db} -o {output} --topk 300 \
+        skadi utils api -i {input.m8} -g {input.gff} -d {params.db} -o {output} --topk 300 \
         --header query,target,theader,fident,qlen,tlen,alnlen,mismatch,gapopen,qstart,qend,tstart,tend,evalue,bits,taxid,taxname,taxlineage \
         --level {params.level} --dbdir {params.db}  --batch {params.batch} {params.api} &> {log}
         """

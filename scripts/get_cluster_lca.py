@@ -16,7 +16,7 @@ taxid (taxid of the lca of the cluster)
 import pandas as pd
 import taxopy
 from sys import argv
-from vcat.color_logger import logger
+from skadi.color_logger import logger
 
 
 # You can also use your own set of taxonomy files:

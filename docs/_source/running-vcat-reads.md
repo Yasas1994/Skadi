@@ -5,28 +5,28 @@ extreamly low (clinical samples).
 
 
 ```bash
-vcat reads -in <reads1>.fastq [-in2 <reads2.fastq>] -o outdir
+skadi reads -in <reads1>.fastq [-in2 <reads2.fastq>] -o outdir
 ```
 
 Additional bbmap and pileup options can be used to customize this workflow.
 
 ```bash 
-Usage: vcat reads [OPTIONS] [SNAKEMAKE_ARGS]...
+Usage: skadi reads [OPTIONS] [SNAKEMAKE_ARGS]...
 
-  The Virus contig annotation tool (Vcat) is a straightforward, homology-based
+  SKADI: Sequence-based Knowledgebase for Annotation, Detection, and Identification
   application designed to  provide taxonomy annotations to virus contigs and
   mapping reads directly to virus genomes.
 
-  usage (paired-end): vcat reads [OPTIONS] -i1 pair1.fastq -i2 pair2.fastq -o
+  usage (paired-end): skadi reads [OPTIONS] -i1 pair1.fastq -i2 pair2.fastq -o
   mapping_results.tsv
 
-  usage (single-end): vcat reads [OPTIONS] -i1 pair1.fastq -o
+  usage (single-end): skadi reads [OPTIONS] -i1 pair1.fastq -o
   mapping_results.tsv
 
 Options:
-  -in, --input PATH    input read file1 to run vcat on  [required]
-  -in2, --input2 PATH  input read file2 (paired-end) to run vcat on
-  -o, --output PATH    dir to store vcat results  [required]
+  -in, --input PATH    input read file1 to run skadi on  [required]
+  -in2, --input2 PATH  input read file2 (paired-end) to run skadi on
+  -o, --output PATH    dir to store skadi results  [required]
   -j, --jobs INTEGER   use at most this many jobs in parallel (see cluster
                        submission for more details).  [default: 28]
   --bbmap_args TEXT    Extra arguments passed directly to BBMap (e.g.
@@ -55,7 +55,7 @@ Results can be found in the `results` directory within the output directory. A t
 ├── input.sorted.bam
 └── input.sorted.bam.bai
 ```
-- `input.vcat.tsv` contains summary of all reads mapped to reference virus genomes.
+- `input.skadi.tsv` contains summary of all reads mapped to reference virus genomes.
 - `input.pileup.tsv` contains pileup output.
 - `input.sorted.bam` sorted bam file.
 - `input.sorted.bam.bai` index of the sorted bam file.

@@ -34,7 +34,7 @@ def setup_logging(level: str) -> logging.Logger:
         format="%(asctime)s - %(levelname)s - %(message)s",
         handlers=[logging.StreamHandler()],
     )
-    return logging.getLogger("vcat")
+    return logging.getLogger("skadi")
 
 
 def search_pattern(x: str) -> str:
