@@ -8,6 +8,8 @@ from NCBI in GenBank (gb) format.
 
 from pathlib import Path
 import re
+import time
+
 import requests
 import openpyxl
 import click
@@ -98,18 +100,35 @@ def main(infile: Path, outdir: Path, batch_size: int) -> None:
             "retmode": "text",
         }
 
-        response = requests.get(NCBI_EFETCH_URL, params=params)
-
-        if response.status_code == 200:
-            outfile = outdir / f"sequences_{i}_{i + batch_size}.gb"
-            outfile.write_text(response.text)
-            logger.info("Downloaded: %s", outfile.name)
+        max_retries = 5
+        for attempt in range(1, max_retries + 1):
+            try:
+                response = requests.get(
+                    NCBI_EFETCH_URL, params=params, timeout=120
+                )
+                response.raise_for_status()
+                outfile = outdir / f"sequences_{i}_{i + batch_size}.gb"
+                outfile.write_text(response.text)
+                logger.info("Downloaded: %s", outfile.name)
+                break
+            except requests.exceptions.RequestException as exc:
+                wait = 2 ** attempt
+                logger.warning(
+                    "Batch %d–%d failed (attempt %d/%d): %s. Retrying in %ds…",
+                    i,
+                    i + batch_size,
+                    attempt,
+                    max_retries,
+                    exc,
+                    wait,
+                )
+                time.sleep(wait)
         else:
             logger.error(
-                "Failed batch %d–%d (HTTP %d)",
+                "Failed batch %d–%d after %d attempts",
                 i,
                 i + batch_size,
-                response.status_code,
+                max_retries,
             )
 
     # Sentinel file for downstream workflows

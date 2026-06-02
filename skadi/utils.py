@@ -370,7 +370,7 @@ def ani_summary(infile: Union[str, StringIO],
             # compute qcov using existing compute_cov (expects list of Series)
             try:
                 qcov = compute_cov([gpl["qstart"], gpl["qend"], gpl["qlen"]])
-            except Exception:
+            except (ValueError, IndexError, ZeroDivisionError):
                 qcov = 0.0
 
             tani = round(ani * qcov, 4)
@@ -394,10 +394,8 @@ def ani_summary(infile: Union[str, StringIO],
         )
 
         if not all:
-            # keep best hit per query (highest tani)
-            out_pdf = out.to_pandas()
-            best_pdf = out_pdf.sort_values("tani", ascending=False).drop_duplicates("query", keep="first")
-            return pl.from_pandas(best_pdf)
+            # keep best hit per query (highest tani) using native Polars
+            return out.sort("tani", descending=True).unique(subset=["query"], keep="first")
         else:
             return out
 

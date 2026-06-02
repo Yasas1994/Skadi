@@ -313,7 +313,7 @@ def main(db_dir: str, nuc: str, prot: str, prof: str, outfile: str, **kwargs):
         matched = nuc_df["SequenceID"].to_list()
         if not nuc_df.is_empty():
             dfs.append(nuc_df)
-    except Exception as e:
+    except (pl.exceptions.ComputeError, FileNotFoundError, ValueError) as e:
         logger.info(f"nucleotide level results were not added because {e}")
 
     try:
@@ -328,7 +328,7 @@ def main(db_dir: str, nuc: str, prot: str, prof: str, outfile: str, **kwargs):
         if not prot_df.is_empty():
             dfs.append(prot_df)
 
-    except Exception:
+    except (pl.exceptions.ComputeError, FileNotFoundError, ValueError):
         logger.info("no prot level results to merge")
 
     try:
@@ -343,7 +343,7 @@ def main(db_dir: str, nuc: str, prot: str, prof: str, outfile: str, **kwargs):
         if not prof_df.is_empty():
             dfs.append(prof_df)
 
-    except Exception:
+    except (pl.exceptions.ComputeError, FileNotFoundError, ValueError):
         logger.info("no profile level results to merge")
 
     # write a ictv taxonomy challange formatted file - this will be removed later
