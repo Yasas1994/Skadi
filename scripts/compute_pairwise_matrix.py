@@ -469,6 +469,77 @@ def label_pairs(
     return pairs_labeled
 
 
+def label_pairs_for_axi(
+    pairs_df: pl.DataFrame,
+    acc_to_ranks: Dict[str, Dict[str, Optional[int]]],
+    taxdb,
+    out_path: Path,
+) -> pl.DataFrame:
+    """Label AAI/API pairs by shared taxonomy ranks.
+
+    For AAI/API, pairs are (query_genome, target_species_taxid) instead of
+    (query_genome, target_genome). We look up the query's taxonomy from
+    acc_to_ranks and the target's taxonomy from taxdb via the species taxid.
+
+    Args:
+        pairs_df: DataFrame with columns [seqid, taxid, ...] where taxid is
+                  the target species taxid.
+        acc_to_ranks: Mapping from genome accession to rank taxids.
+        taxdb: taxopy.TaxDb object for looking up target taxonomy.
+        out_path: Output parquet path.
+
+    Returns:
+        DataFrame with same_* columns for each rank.
+    """
+    logger.info("Labeling AAI/API pairs by taxonomy...")
+    from taxopy import Taxon
+
+    # Build target rank lookup: species_taxid -> {rank: taxid}
+    target_taxids = pairs_df["taxid"].unique().to_list()
+    target_rank_lookup: Dict[int, Dict[str, Optional[int]]] = {}
+    for sp_taxid in target_taxids:
+        try:
+            taxon = Taxon(sp_taxid, taxdb)
+            rank_map = {taxdb.taxid2rank.get(t, "unknown"): t for t in taxon.taxid_lineage}
+            target_rank_lookup[sp_taxid] = {r: rank_map.get(r) for r in RANKS}
+        except Exception:
+            target_rank_lookup[sp_taxid] = {r: None for r in RANKS}
+
+    # Build query rank lookup from acc_to_ranks
+    query_rank_lookup: Dict[str, Dict[str, Optional[int]]] = {}
+    for acc in pairs_df["seqid"].unique().to_list():
+        query_rank_lookup[acc] = acc_to_ranks.get(acc, {r: None for r in RANKS})
+
+    # Add rank columns and compute same flags
+    pairs_labeled = pairs_df
+    for rank in RANKS:
+        q_taxids = [query_rank_lookup.get(acc, {}).get(rank) for acc in pairs_df["seqid"].to_list()]
+        t_taxids = [target_rank_lookup.get(tid, {}).get(rank) for tid in pairs_df["taxid"].to_list()]
+        pairs_labeled = pairs_labeled.with_columns(
+            pl.Series(f"q_{rank}_taxid", q_taxids, dtype=pl.Int64),
+            pl.Series(f"t_{rank}_taxid", t_taxids, dtype=pl.Int64),
+        ).with_columns(
+            pl.when(
+                pl.col(f"q_{rank}_taxid").is_not_null()
+                & pl.col(f"t_{rank}_taxid").is_not_null()
+                & (pl.col(f"q_{rank}_taxid") == pl.col(f"t_{rank}_taxid"))
+            )
+            .then(pl.lit(True))
+            .otherwise(pl.lit(False))
+            .alias(f"same_{rank}")
+        )
+
+    pairs_labeled.write_parquet(out_path)
+    logger.info("Saved labeled AAI/API pairs to %s", out_path)
+
+    # Report statistics
+    for rank in RANKS:
+        same_count = pairs_labeled.filter(pl.col(f"same_{rank}")).height
+        logger.info("  same_%s: %d (%.2f%%)", rank, same_count, 100 * same_count / len(pairs_labeled))
+
+    return pairs_labeled
+
+
 def fit_kde(scores: np.ndarray, bandwidth: Optional[float] = None) -> gaussian_kde:
     """Fit a Gaussian KDE to a score distribution."""
     if len(scores) < 2:
@@ -927,9 +998,7 @@ def main() -> None:
         taxdb, name2taxid = load_taxonomy(args.db_dir)
         acc_to_ranks = build_accession_taxonomy_map(args.db_dir, taxdb, name2taxid)
         aai_df = pl.read_parquet(aai_path)
-        # Rename seqid to query for consistency with label_pairs
-        aai_df = aai_df.rename({"seqid": "query"})
-        label_pairs(aai_df, acc_to_ranks, aai_labeled_path)
+        label_pairs_for_axi(aai_df, acc_to_ranks, taxdb, aai_labeled_path)
 
     # Step 6: Derive thresholds
     if args.derive_thresholds or args.all:
@@ -980,9 +1049,7 @@ def main() -> None:
             taxdb, name2taxid = load_taxonomy(args.db_dir)
             acc_to_ranks = build_accession_taxonomy_map(args.db_dir, taxdb, name2taxid)
             api_df = pl.read_parquet(api_path)
-            # Rename seqid to query for consistency with label_pairs
-            api_df = api_df.rename({"seqid": "query"})
-            label_pairs(api_df, acc_to_ranks, api_labeled_path)
+            label_pairs_for_axi(api_df, acc_to_ranks, taxdb, api_labeled_path)
 
         # API thresholds: family + order + class + phylum + kingdom
         if api_labeled_path.exists():
