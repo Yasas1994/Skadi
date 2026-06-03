@@ -147,6 +147,99 @@ def compute_ani_scores(m8_path: Path, out_path: Path) -> pl.DataFrame:
     return df
 
 
+def compute_aai_scores(
+    prot_m8_path: Path,
+    db_dir: Path,
+    out_path: Path,
+    chunksize: int = 1_000_000,
+) -> pl.DataFrame:
+    """Compute AAI scores from protein m8 file.
+
+    Processes protein search results to compute tAAI per (query_genome, target_taxid).
+    tAAI = AAI * qcov where qcov = unique_hit_proteins / total_query_proteins.
+
+    Args:
+        prot_m8_path: Path to protein search m8 file.
+        db_dir: Database directory (for genome2protein mapping).
+        out_path: Output parquet path.
+        chunksize: Number of rows to process at a time.
+
+    Returns:
+        DataFrame with columns [seqid, taxid, aai, qcov, taai, hit_proteins, total_proteins].
+    """
+    logger.info("Computing AAI scores from %s...", prot_m8_path)
+
+    # Load protein counts per genome
+    g2p_path = db_dir / "VMR_latest" / "genome2protein"
+    if not g2p_path.exists():
+        logger.error("genome2protein file not found: %s", g2p_path)
+        raise FileNotFoundError(g2p_path)
+
+    g2p = pl.read_csv(g2p_path, separator="\t")
+    protein_counts = g2p.group_by("genome_id").len().rename({"len": "total_proteins"})
+    logger.info("Loaded protein counts for %d genomes", len(protein_counts))
+
+    # Process m8 in chunks using pandas for chunked reading
+    import pandas as pd
+
+    header = [
+        "query", "target", "theader", "fident", "qlen", "tlen", "alnlen",
+        "mismatch", "gapopen", "qstart", "qend", "tstart", "tend",
+        "evalue", "bits", "taxid", "taxname", "taxlineage",
+    ]
+
+    all_scores = []
+    chunk_iter = pd.read_csv(
+        prot_m8_path,
+        sep="\t",
+        header=None,
+        names=header,
+        chunksize=chunksize,
+    )
+
+    for i, pd_chunk in enumerate(chunk_iter):
+        chunk = pl.from_pandas(pd_chunk)
+
+        # Extract genome ID from query protein ID (format: genome_acc_ORFnum)
+        chunk = chunk.with_columns(
+            pl.col("query").str.extract(r"^(.+)_[0-9]+$", 1).alias("seqid")
+        )
+
+        # Join total proteins
+        chunk = chunk.join(protein_counts, left_on="seqid", right_on="genome_id", how="left")
+
+        # Compute AAI metrics per (seqid, taxid)
+        scores = chunk.group_by(["seqid", "taxid"]).agg(
+            ((pl.col("fident") * pl.col("alnlen")).sum() / pl.col("alnlen").sum())
+            .round(3).alias("aai"),
+            pl.col("query").n_unique().alias("hit_proteins"),
+            pl.first("total_proteins").alias("total_proteins"),
+        )
+
+        # Compute qcov and taai
+        scores = scores.with_columns(
+            (pl.col("hit_proteins") / pl.col("total_proteins")).round(3).alias("qcov"),
+        ).with_columns(
+            (pl.col("aai") * pl.col("qcov")).round(3).alias("taai"),
+        )
+
+        all_scores.append(scores)
+        if (i + 1) % 10 == 0:
+            logger.info("  Processed %d chunks...", i + 1)
+
+    if all_scores:
+        df = pl.concat(all_scores)
+    else:
+        df = pl.DataFrame({
+            "seqid": [], "taxid": [], "aai": [], "qcov": [], "taai": [],
+            "hit_proteins": [], "total_proteins": [],
+        })
+
+    df.write_parquet(out_path)
+    logger.info("Saved AAI scores to %s (%d pairs)", out_path, len(df))
+    return df
+
+
 def load_taxonomy(db_dir: Path) -> Tuple[Dict, Dict]:
     """Load taxonomy database and build name->taxid mapping.
 
