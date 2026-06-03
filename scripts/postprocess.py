@@ -192,52 +192,29 @@ def _apply_taxon_columns(df: pl.DataFrame, taxdb: TaxDb, rank: str) -> pl.DataFr
     )
 
 
-def _load_thresholds(thresholds_file: str) -> tuple:
+def _load_thresholds(thresholds_file: str) -> Dict:
     """Load per-group thresholds from JSON file.
 
+    Supports both old flat format and new nested format (ani/aai/api).
+
     Returns:
-        (global_thresholds, per_family_df) where:
-        - global_thresholds: dict {rank: threshold_value}
-        - per_family_df: polars DataFrame with columns [family_taxid, species_thresh, genus_thresh]
+        Dict with structure:
+        {
+            "ani": {"global": {...}, "species": {"family": {...}}, "genus": {"family": {...}}},
+            "aai": {"global": {...}, "family": {"order": {...}}, ...},
+            "api": {"global": {...}, "family": {"order": {...}}, ...},
+        }
+        Or falls back to old flat format.
     """
     with open(thresholds_file) as f:
         data = json.load(f)
 
-    global_thresholds = {}
-    for rank, info in data.get("global", {}).items():
-        global_thresholds[rank] = info.get("threshold", 0.0)
+    # Detect format: new format has "ani" or "aai" or "api" as top-level keys
+    if any(k in data for k in ["ani", "aai", "api"]):
+        return data
 
-    # Build per-family thresholds dataframe
-    # Collect all family taxids that have thresholds
-    family_taxids = set()
-    for target_rank in ["species", "genus"]:
-        if target_rank in data and "family" in data.get(target_rank, {}):
-            family_taxids.update(data[target_rank]["family"].keys())
-
-    rows = []
-    for taxid in family_taxids:
-        species_thresh = data.get("species", {}).get("family", {}).get(taxid, {}).get("threshold")
-        genus_thresh = data.get("genus", {}).get("family", {}).get(taxid, {}).get("threshold")
-        rows.append({
-            "family_taxid": int(taxid),
-            "species_thresh": species_thresh,
-            "genus_thresh": genus_thresh,
-        })
-
-    if rows:
-        per_family = pl.DataFrame(rows)
-    else:
-        per_family = pl.DataFrame({
-            "family_taxid": [],
-            "species_thresh": [],
-            "genus_thresh": [],
-        }, schema={
-            "family_taxid": pl.Int64,
-            "species_thresh": pl.Float64,
-            "genus_thresh": pl.Float64,
-        })
-
-    return global_thresholds, per_family
+    # Old flat format: wrap as "ani" for backward compatibility
+    return {"ani": data}
 
 
 def _run_cascade(
@@ -245,24 +222,34 @@ def _run_cascade(
 ) -> List[pl.DataFrame]:
     """Original ANI → AAI → API cascade logic.
 
-    Supports per-family thresholds via --thresholds-file.
+    Supports per-group thresholds via --thresholds-file.
     """
     dfs = []
     matched = []
 
-    # Load per-family thresholds if provided
-    global_thresh = None
-    family_thresh_df = None
+    # Load thresholds if provided
+    thresholds_data = None
+    ani_thresholds = None
+    aai_thresholds = None
+    api_thresholds = None
     thresholds_file = kwargs.get("thresholds_file")
     if thresholds_file and Path(thresholds_file).exists():
-        global_thresh, family_thresh_df = _load_thresholds(thresholds_file)
-        logger.info("Loaded per-family thresholds from %s", thresholds_file)
+        thresholds_data = _load_thresholds(thresholds_file)
+        ani_thresholds = thresholds_data.get("ani", {})
+        aai_thresholds = thresholds_data.get("aai", {})
+        api_thresholds = thresholds_data.get("api", {})
+        logger.info("Loaded thresholds from %s", thresholds_file)
 
     try:
         nuc_df = pl.read_csv(nuc, separator="\t")
         nuc_df = nuc_df.with_columns(pl.lit("ani").alias("Method")).rename(
             {"ani": "Score", "qlen": "Seqlen", "query": "SequenceID"}
         )
+
+        # Get ANI thresholds (species + genus)
+        ani_global = ani_thresholds.get("global", {}) if ani_thresholds else {}
+        tanis = ani_global.get("species", {}).get("threshold", kwargs["tanis"])
+        tanig = ani_global.get("genus", {}).get("threshold", kwargs["tanig"])
 
         # Add family_taxid for per-family threshold lookup
         unique_taxids = [t for t in nuc_df["taxid"].unique().to_list() if t is not None]
@@ -271,17 +258,35 @@ def _run_cascade(
             pl.col("taxid").replace_strict(family_map, default=0).alias("family_taxid")
         )
 
-        # Join with per-family thresholds
-        if family_thresh_df is not None and not family_thresh_df.is_empty():
-            nuc_df = nuc_df.join(family_thresh_df, on="family_taxid", how="left")
-            nuc_df = nuc_df.with_columns(
-                pl.col("species_thresh").fill_null(global_thresh.get("species", kwargs["tanis"])),
-                pl.col("genus_thresh").fill_null(global_thresh.get("genus", kwargs["tanig"])),
-            )
+        # Build per-family ANI thresholds dataframe
+        if ani_thresholds:
+            family_taxids = set()
+            for rank in ["species", "genus"]:
+                if rank in ani_thresholds and "family" in ani_thresholds[rank]:
+                    family_taxids.update(ani_thresholds[rank]["family"].keys())
+
+            rows = []
+            for taxid in family_taxids:
+                sp = ani_thresholds.get("species", {}).get("family", {}).get(taxid, {}).get("threshold")
+                gn = ani_thresholds.get("genus", {}).get("family", {}).get(taxid, {}).get("threshold")
+                rows.append({"family_taxid": int(taxid), "species_thresh": sp, "genus_thresh": gn})
+
+            if rows:
+                family_thresh_df = pl.DataFrame(rows)
+                nuc_df = nuc_df.join(family_thresh_df, on="family_taxid", how="left")
+                nuc_df = nuc_df.with_columns(
+                    pl.col("species_thresh").fill_null(tanis),
+                    pl.col("genus_thresh").fill_null(tanig),
+                )
+            else:
+                nuc_df = nuc_df.with_columns(
+                    pl.lit(tanis).alias("species_thresh"),
+                    pl.lit(tanig).alias("genus_thresh"),
+                )
         else:
             nuc_df = nuc_df.with_columns(
-                pl.lit(kwargs["tanis"]).alias("species_thresh"),
-                pl.lit(kwargs["tanig"]).alias("genus_thresh"),
+                pl.lit(tanis).alias("species_thresh"),
+                pl.lit(tanig).alias("genus_thresh"),
             )
 
         # Filter using per-family thresholds

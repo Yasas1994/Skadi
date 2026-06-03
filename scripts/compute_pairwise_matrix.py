@@ -57,15 +57,19 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("db_dir", type=Path, help="Path to SKADI database directory")
     p.add_argument("outdir", type=Path, help="Output directory")
     p.add_argument("--m8", type=Path, default=None,
-                   help="Path to existing MMseqs2 all-vs-all m8 file")
+                   help="Path to existing MMseqs2 all-vs-all nucleotide m8 file")
+    p.add_argument("--prot-m8", type=Path, default=None,
+                   help="Path to protein search m8 file (for AAI threshold derivation)")
+    p.add_argument("--prof-m8", type=Path, default=None,
+                   help="Path to profile search m8 file (for API threshold derivation)")
     p.add_argument("--run-search", action="store_true",
                    help="Run MMseqs2 all-vs-all search (requires mmseqs in PATH)")
     p.add_argument("--compute-ani", action="store_true",
                    help="Compute ANI scores from m8")
     p.add_argument("--compute-aai", action="store_true",
-                   help="Compute AAI scores (requires protein search)")
+                   help="Compute AAI scores from prot-m8")
     p.add_argument("--compute-api", action="store_true",
-                   help="Compute API scores (requires protein search)")
+                   help="Compute API scores from prof-m8")
     p.add_argument("--label-pairs", action="store_true",
                    help="Label pairs by taxonomy")
     p.add_argument("--derive-thresholds", action="store_true",
@@ -573,38 +577,48 @@ def derive_group_thresholds(
     return results
 
 
-def derive_all_thresholds(
+def derive_thresholds_for_method(
     pairs_df: pl.DataFrame,
     score_col: str,
+    target_ranks: List[str],
     method: str = "youden",
     percentile: float = 5.0,
     min_pairs: int = 10,
     taxdb=None,
 ) -> Dict:
-    """Derive thresholds for all group/rank combinations.
+    """Derive thresholds for specific target ranks from a score column.
 
-    Returns nested dict: group_rank -> target_rank -> group_taxid -> threshold_info
+    Args:
+        pairs_df: Labeled pairs dataframe.
+        score_col: Score column to use (e.g., "tani", "taai", "tapi").
+        target_ranks: List of ranks to derive thresholds for.
+        method: Threshold computation method.
+        percentile: Percentile for percentile method.
+        min_pairs: Minimum pairs per group.
+        taxdb: TaxDb object for name lookups.
+
+    Returns:
+        Dict with structure: target_rank -> group_rank -> group_taxid -> threshold_info
     """
     results = {}
 
-    # Define which group ranks to use for each target rank
-    # For species: group by family (or use global)
-    # For genus: group by family
-    # For family: group by order (or class if order missing)
-    # etc.
+    # Map target rank to appropriate group rank
+    rank_to_group = {
+        "species": "family",
+        "genus": "family",
+        "family": "order",
+        "order": "class",
+        "class": "phylum",
+        "phylum": "kingdom",
+        "kingdom": "realm",
+    }
 
-    group_target_pairs = [
-        ("family", "species"),
-        ("family", "genus"),
-        ("order", "family"),
-        ("class", "order"),
-        ("phylum", "class"),
-        ("kingdom", "phylum"),
-        ("realm", "kingdom"),
-    ]
+    for target_rank in target_ranks:
+        group_rank = rank_to_group.get(target_rank)
+        if not group_rank:
+            continue
 
-    for group_rank, target_rank in group_target_pairs:
-        logger.info("Deriving %s thresholds per %s...", target_rank, group_rank)
+        logger.info("Deriving %s thresholds per %s (%s)...", target_rank, group_rank, score_col)
         group_results = derive_group_thresholds(
             pairs_df,
             group_rank,
@@ -619,13 +633,11 @@ def derive_all_thresholds(
         if target_rank not in results:
             results[target_rank] = {}
         results[target_rank][group_rank] = group_results
-
         logger.info("  Derived %d thresholds", len(group_results))
 
-    # Also compute global thresholds
-    logger.info("Computing global thresholds...")
+    # Compute global thresholds for target ranks
     results["global"] = {}
-    for target_rank in ["species", "genus", "family", "order", "class", "phylum", "kingdom"]:
+    for target_rank in target_ranks:
         pos = pairs_df.filter(pl.col(f"same_{target_rank}"))
         neg = pairs_df.filter(~pl.col(f"same_{target_rank}"))
 
@@ -807,40 +819,84 @@ def main() -> None:
         else:
             logger.info("Using existing labeled pairs: %s", labeled_path)
 
-    # Step 4: Derive thresholds
-    if args.derive_thresholds or args.all:
-        pairs_df = pl.read_parquet(labeled_path)
-        taxdb, _ = load_taxonomy(args.db_dir)
+    # Step 4: Compute AAI scores if protein m8 provided
+    aai_path = args.outdir / "pairs_aai.parquet"
+    if args.compute_aai and args.prot_m8:
+        if not aai_path.exists():
+            compute_aai_scores(args.prot_m8, args.db_dir, aai_path)
+        else:
+            logger.info("Using existing AAI scores: %s", aai_path)
 
-        logger.info("Deriving thresholds using %s method...", args.threshold_method)
-        thresholds = derive_all_thresholds(
-            pairs_df,
-            score_col=args.score_type,
-            method=args.threshold_method,
-            percentile=args.percentile,
-            min_pairs=args.min_pairs_per_group,
-            taxdb=taxdb,
-        )
+    # Step 5: Label AAI pairs by taxonomy
+    aai_labeled_path = args.outdir / "pairs_aai_labeled.parquet"
+    if args.compute_aai and args.prot_m8 and not aai_labeled_path.exists():
+        taxdb, name2taxid = load_taxonomy(args.db_dir)
+        acc_to_ranks = build_accession_taxonomy_map(args.db_dir, taxdb, name2taxid)
+        aai_df = pl.read_parquet(aai_path)
+        # Rename seqid to query for consistency with label_pairs
+        aai_df = aai_df.rename({"seqid": "query"})
+        label_pairs(aai_df, acc_to_ranks, aai_labeled_path)
+
+    # Step 6: Derive thresholds
+    if args.derive_thresholds or args.all:
+        taxdb, _ = load_taxonomy(args.db_dir)
+        all_thresholds = {}
+
+        # ANI thresholds: species + genus
+        if ani_path.exists():
+            logger.info("Deriving ANI thresholds (species, genus)...")
+            ani_df = pl.read_parquet(labeled_path)
+            ani_thresholds = derive_thresholds_for_method(
+                ani_df,
+                score_col="tani",
+                target_ranks=["species", "genus"],
+                method=args.threshold_method,
+                percentile=args.percentile,
+                min_pairs=args.min_pairs_per_group,
+                taxdb=taxdb,
+            )
+            all_thresholds["ani"] = ani_thresholds
+
+        # AAI thresholds: family + order + class + phylum + kingdom
+        if aai_labeled_path.exists():
+            logger.info("Deriving AAI thresholds (family, order, class, phylum, kingdom)...")
+            aai_df = pl.read_parquet(aai_labeled_path)
+            aai_thresholds = derive_thresholds_for_method(
+                aai_df,
+                score_col="taai",
+                target_ranks=["family", "order", "class", "phylum", "kingdom"],
+                method=args.threshold_method,
+                percentile=args.percentile,
+                min_pairs=args.min_pairs_per_group,
+                taxdb=taxdb,
+            )
+            all_thresholds["aai"] = aai_thresholds
+
+        # API thresholds: family + order + class + phylum + kingdom
+        # TODO: Implement when profile search data is available
+        if args.prof_m8:
+            logger.warning("API threshold derivation not yet implemented")
 
         # Apply threshold correction and caps
         if args.threshold_correction != 1.0 or args.max_threshold is not None:
             logger.info("Applying threshold correction (factor=%.2f, max=%s)...",
                         args.threshold_correction, args.max_threshold)
-            thresholds = apply_threshold_adjustments(
-                thresholds,
-                correction=args.threshold_correction,
-                max_threshold=args.max_threshold,
-                use_reliable_only=args.use_reliable_only,
-            )
+            for method_key in all_thresholds:
+                all_thresholds[method_key] = apply_threshold_adjustments(
+                    all_thresholds[method_key],
+                    correction=args.threshold_correction,
+                    max_threshold=args.max_threshold,
+                    use_reliable_only=args.use_reliable_only,
+                )
 
         # Save thresholds
         thresholds_path = args.outdir / "thresholds.json"
         with open(thresholds_path, "w") as f:
-            json.dump(thresholds, f, indent=2)
+            json.dump(all_thresholds, f, indent=2)
         logger.info("Thresholds saved to %s", thresholds_path)
 
         # Write report
-        write_threshold_report(thresholds, args.outdir / "threshold_report.txt")
+        write_threshold_report(all_thresholds, args.outdir / "threshold_report.txt")
 
 
 if __name__ == "__main__":
