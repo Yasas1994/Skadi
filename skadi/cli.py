@@ -1376,6 +1376,12 @@ def fragment(**kwargs):
     required=False,
 )
 @click.option(
+    "--thresholds-file",
+    type=click.Path(exists=True, dir_okay=False, resolve_path=True),
+    default=None,
+    help="JSON file with per-group thresholds from compute_pairwise_matrix.py",
+)
+@click.option(
     "--batch",
     type=int,
     default=5000,
@@ -1420,6 +1426,7 @@ def benchmark(dbdir, results, batch, level, method, min_confidence, snakemake_ar
     taai_params = ""
     tapi_params = ""
     tani_params = ""
+    thresholds_file_param = ""
     for k, v in kwargs.items():
         if k.startswith("taai"):
             taai_params += f" --{k} {v}"
@@ -1427,13 +1434,15 @@ def benchmark(dbdir, results, batch, level, method, min_confidence, snakemake_ar
             tapi_params += f" --{k} {v}"
         elif k.startswith("tani"):
             tani_params += f" --{k} {v}"
+        elif k == "thresholds_file" and v:
+            thresholds_file_param = f" --thresholds-file {v}"
 
     jobs = kwargs.get("jobs", 4)
     config_overrides = {
         "database_dir": dbdir,
         "results": results,
         "batch": str(batch),
-        "ani": tani_params,
+        "ani": tani_params + thresholds_file_param,
         "aai": taai_params,
         "api": tapi_params,
         "level": level,

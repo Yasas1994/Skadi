@@ -84,6 +84,12 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--score-type", type=str, default="tani",
                    choices=["tani", "ani", "aai", "api"],
                    help="Score type to use for threshold derivation (default: tani)")
+    p.add_argument("--threshold-correction", type=float, default=1.0,
+                   help="Scale all derived thresholds by this factor (default: 1.0)")
+    p.add_argument("--max-threshold", type=float, default=None,
+                   help="Cap thresholds at this maximum value (default: no cap)")
+    p.add_argument("--use-reliable-only", action="store_true",
+                   help="Only use thresholds marked reliable; fall back to global for others")
     return p.parse_args()
 
 
@@ -561,6 +567,63 @@ def derive_all_thresholds(
     return results
 
 
+def apply_threshold_adjustments(
+    thresholds: Dict,
+    correction: float = 1.0,
+    max_threshold: Optional[float] = None,
+    use_reliable_only: bool = False,
+) -> Dict:
+    """Apply correction factor, max cap, and reliability filtering to thresholds.
+
+    Args:
+        thresholds: Nested dict from derive_all_thresholds.
+        correction: Multiply all thresholds by this factor.
+        max_threshold: Cap thresholds at this value.
+        use_reliable_only: If True, set unreliable per-group thresholds to None
+                           (so downstream uses global fallback).
+
+    Returns:
+        Modified thresholds dict.
+    """
+    adjusted = {}
+
+    for key, value in thresholds.items():
+        if key == "global":
+            adjusted[key] = {}
+            for rank, info in value.items():
+                new_info = dict(info)
+                t = new_info["threshold"] * correction
+                if max_threshold is not None:
+                    t = min(t, max_threshold)
+                new_info["threshold"] = round(float(t), 4)
+                new_info["original_threshold"] = round(float(info["threshold"]), 4)
+                adjusted[key][rank] = new_info
+        elif isinstance(value, dict):
+            adjusted[key] = {}
+            for group_rank, groups in value.items():
+                adjusted[key][group_rank] = {}
+                for taxid, info in groups.items():
+                    new_info = dict(info)
+                    t = new_info["threshold"] * correction
+                    if max_threshold is not None:
+                        t = min(t, max_threshold)
+
+                    # If use_reliable_only and not reliable, set to global fallback
+                    if use_reliable_only and not new_info.get("reliable", True):
+                        # Will be handled by downstream fallback logic
+                        new_info["threshold"] = None
+                        new_info["disabled"] = True
+                    else:
+                        new_info["threshold"] = round(float(t), 4)
+
+                    new_info["original_threshold"] = round(float(info["threshold"]), 4)
+                    adjusted[key][group_rank][taxid] = new_info
+        else:
+            adjusted[key] = value
+
+    return adjusted
+
+
 def write_threshold_report(thresholds: Dict, out_path: Path) -> None:
     """Write a human-readable threshold report."""
     with open(out_path, "w") as f:
@@ -665,6 +728,17 @@ def main() -> None:
             min_pairs=args.min_pairs_per_group,
             taxdb=taxdb,
         )
+
+        # Apply threshold correction and caps
+        if args.threshold_correction != 1.0 or args.max_threshold is not None:
+            logger.info("Applying threshold correction (factor=%.2f, max=%s)...",
+                        args.threshold_correction, args.max_threshold)
+            thresholds = apply_threshold_adjustments(
+                thresholds,
+                correction=args.threshold_correction,
+                max_threshold=args.max_threshold,
+                use_reliable_only=args.use_reliable_only,
+            )
 
         # Save thresholds
         thresholds_path = args.outdir / "thresholds.json"
