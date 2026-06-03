@@ -1383,6 +1383,18 @@ def fragment(**kwargs):
     required=False,
 )
 @click.option(
+    "--method",
+    type=click.Choice(["cascade", "consensus"], case_sensitive=False),
+    default="cascade",
+    help="Taxonomy assignment method for postprocessing.",
+)
+@click.option(
+    "--min-confidence",
+    type=float,
+    default=0.5,
+    help="Minimum confidence for consensus assignment.",
+)
+@click.option(
     "-n",
     "--dryrun",
     is_flag=True,
@@ -1392,7 +1404,7 @@ def fragment(**kwargs):
 )
 
 @click.argument("snakemake_args", nargs=-1, type=click.UNPROCESSED)
-def benchmark(dbdir, results, batch, level, snakemake_args, **kwargs):
+def benchmark(dbdir, results, batch, level, method, min_confidence, snakemake_args, **kwargs):
     """
     benchmark the performance by leaving out taxa. Suppose target X belongs to taxon Y 
     we remove all query hits to taxon Y and calculate the axi to the taxa belonging to remianing hits.
@@ -1425,6 +1437,8 @@ def benchmark(dbdir, results, batch, level, snakemake_args, **kwargs):
         "aai": taai_params,
         "api": tapi_params,
         "level": level,
+        "method": method,
+        "min_confidence": str(min_confidence),
     }
 
     cmd = _build_snakemake_cmd(

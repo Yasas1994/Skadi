@@ -22,6 +22,35 @@ DEFAULT_WEIGHTS = {
 # Rank order for traversal (fine to coarse)
 RANKS = ["species", "genus", "family", "order", "class", "phylum", "kingdom"]
 
+# Threshold key prefixes used in config.yaml
+_THRESH_PREFIXES = {"ani": "tani", "aai": "taai", "api": "tapi"}
+
+
+def _resolve_threshold(thresholds: Dict[str, float], method: str, rank: str) -> float:
+    """Resolve threshold for a method+rank from the threshold dict.
+
+    Tries multiple key formats:
+      - "tanis" (legacy prefix+rank_initial)
+      - "tani_species" (prefix_rank)
+      - "species" (rank name only)
+      - fallback default
+    """
+    prefix = _THRESH_PREFIXES.get(method, method)
+    # Try legacy format: tanis, tanig, etc.
+    legacy_key = f"{prefix}{rank[0]}"
+    if legacy_key in thresholds:
+        return thresholds[legacy_key]
+    # Try prefix_rank format
+    modern_key = f"{prefix}_{rank}"
+    if modern_key in thresholds:
+        return thresholds[modern_key]
+    # Try rank-only
+    if rank in thresholds:
+        return thresholds[rank]
+    # Fallback defaults by method
+    defaults = {"ani": 0.3, "aai": 0.3, "api": 0.15}
+    return defaults.get(method, 0.3)
+
 
 def _score_to_confidence(score: float, threshold: float, steepness: float = 10.0) -> float:
     """Convert a raw score to a confidence using a sigmoid-like function.
@@ -49,6 +78,13 @@ def _get_rank_taxid_from_lineage(taxid: int, rank: str, taxdb) -> Optional[int]:
         return None
 
 
+def _get_best_hit(df: pl.DataFrame, id_col: str, score_col: str) -> Optional[pl.DataFrame]:
+    """Get the best hit (highest score) for each sequence ID."""
+    if df is None or df.is_empty():
+        return None
+    return df.sort(score_col, descending=True).group_by(id_col).first()
+
+
 def build_consensus_assignment(
     ani_df: Optional[pl.DataFrame],
     aai_df: Optional[pl.DataFrame],
@@ -70,13 +106,19 @@ def build_consensus_assignment(
         min_confidence: Minimum confidence required for assignment.
 
     Returns:
-        DataFrame with columns [SequenceID, rank_taxid, rank_name, confidence, method].
+        DataFrame with columns [SequenceID, rank, rank_taxid, confidence, methods,
+                                taxlineage, Score, level]. Compatible with postprocess.py.
     """
     weights = weights or DEFAULT_WEIGHTS
 
+    # Get best hit per sequence for each method
+    ani_best = _get_best_hit(ani_df, "query", "tani") if ani_df is not None else None
+    aai_best = _get_best_hit(aai_df, "seqid", "taai") if aai_df is not None else None
+    api_best = _get_best_hit(api_df, "seqid", "tapi") if api_df is not None else None
+
     # Collect all sequence IDs
     all_ids: set[str] = set()
-    for df in (ani_df, aai_df, api_df):
+    for df in (ani_best, aai_best, api_best):
         if df is not None and not df.is_empty():
             id_col = "query" if "query" in df.columns else "seqid"
             all_ids.update(df[id_col].to_list())
@@ -84,65 +126,66 @@ def build_consensus_assignment(
     rows = []
     for seqid in all_ids:
         # Gather votes from all methods
-        votes: Dict[str, List[Tuple[int, float, str]]] = {rank: [] for rank in RANKS}
+        votes: Dict[str, List[Tuple[int, float, str, float]]] = {rank: [] for rank in RANKS}
 
-        # ANI votes
-        if ani_df is not None and not ani_df.is_empty() and "query" in ani_df.columns:
-            ani_row = ani_df.filter(pl.col("query") == seqid)
+        # ANI votes (best hit)
+        if ani_best is not None and not ani_best.is_empty() and "query" in ani_best.columns:
+            ani_row = ani_best.filter(pl.col("query") == seqid)
             if not ani_row.is_empty():
-                taxid = ani_row["taxid"][0]
-                tani = ani_row["tani"][0] if "tani" in ani_row.columns else ani_row["ani"][0]
+                taxid = int(ani_row["taxid"][0])
+                tani = float(ani_row["tani"][0]) if "tani" in ani_row.columns else float(ani_row["ani"][0])
                 for rank in RANKS:
                     rank_taxid = _get_rank_taxid_from_lineage(taxid, rank, taxdb)
                     if rank_taxid is not None:
-                        thresh = thresholds.get(f"tani{rank[0]}", thresholds.get(rank, 0.3))
+                        thresh = _resolve_threshold(thresholds, "ani", rank)
                         conf = _score_to_confidence(tani, thresh)
-                        votes[rank].append((rank_taxid, conf, "ani"))
+                        votes[rank].append((rank_taxid, conf, "ani", tani))
 
-        # AAI votes
-        if aai_df is not None and not aai_df.is_empty() and "seqid" in aai_df.columns:
-            aai_row = aai_df.filter(pl.col("seqid") == seqid)
+        # AAI votes (best hit)
+        if aai_best is not None and not aai_best.is_empty() and "seqid" in aai_best.columns:
+            aai_row = aai_best.filter(pl.col("seqid") == seqid)
             if not aai_row.is_empty():
-                taxid = aai_row["taxid"][0]
-                taai = aai_row["taai"][0] if "taai" in aai_row.columns else aai_row["aai"][0]
+                taxid = int(aai_row["taxid"][0])
+                taai = float(aai_row["taai"][0]) if "taai" in aai_best.columns else float(aai_row["aai"][0])
                 for rank in RANKS:
                     rank_taxid = _get_rank_taxid_from_lineage(taxid, rank, taxdb)
                     if rank_taxid is not None:
-                        thresh = thresholds.get(f"taai{rank[0]}", thresholds.get(rank, 0.3))
+                        thresh = _resolve_threshold(thresholds, "aai", rank)
                         conf = _score_to_confidence(taai, thresh)
-                        votes[rank].append((rank_taxid, conf, "aai"))
+                        votes[rank].append((rank_taxid, conf, "aai", taai))
 
-        # API votes
-        if api_df is not None and not api_df.is_empty() and "seqid" in api_df.columns:
-            api_row = api_df.filter(pl.col("seqid") == seqid)
+        # API votes (best hit)
+        if api_best is not None and not api_best.is_empty() and "seqid" in api_best.columns:
+            api_row = api_best.filter(pl.col("seqid") == seqid)
             if not api_row.is_empty():
-                taxid = api_row["taxid"][0]
-                tapi = api_row["tapi"][0] if "tapi" in api_row.columns else api_row["api"][0]
+                taxid = int(api_row["taxid"][0])
+                tapi = float(api_row["tapi"][0]) if "tapi" in api_best.columns else float(api_row["api"][0])
                 for rank in RANKS:
                     rank_taxid = _get_rank_taxid_from_lineage(taxid, rank, taxdb)
                     if rank_taxid is not None:
-                        thresh = thresholds.get(f"tapi{rank[0]}", thresholds.get(rank, 0.15))
+                        thresh = _resolve_threshold(thresholds, "api", rank)
                         conf = _score_to_confidence(tapi, thresh)
-                        votes[rank].append((rank_taxid, conf, "api"))
+                        votes[rank].append((rank_taxid, conf, "api", tapi))
 
         # Weighted voting per rank
         best_rank = None
         best_taxid = None
         best_conf = 0.0
         best_methods = []
+        best_score = 0.0
 
         for rank in RANKS:
             if not votes[rank]:
                 continue
 
             # Weight confidence by method reliability at this rank
-            weighted_votes: Dict[int, List[Tuple[float, str]]] = {}
-            for taxid, conf, method in votes[rank]:
+            weighted_votes: Dict[int, List[Tuple[float, str, float]]] = {}
+            for taxid, conf, method, raw_score in votes[rank]:
                 w = weights.get(method, {}).get(rank, 0.33)
                 weighted_conf = conf * w
                 if taxid not in weighted_votes:
                     weighted_votes[taxid] = []
-                weighted_votes[taxid].append((weighted_conf, method))
+                weighted_votes[taxid].append((weighted_conf, method, raw_score))
 
             # Sum weighted confidences per taxid
             for taxid, conf_methods in weighted_votes.items():
@@ -152,6 +195,16 @@ def build_consensus_assignment(
                     best_taxid = taxid
                     best_rank = rank
                     best_methods = [cm[1] for cm in conf_methods]
+                    best_score = max(cm[2] for cm in conf_methods)
+
+        # Build lineage string for the best taxid
+        taxlineage = ""
+        if best_taxid is not None:
+            try:
+                from taxopy import Taxon
+                taxlineage = str(Taxon(best_taxid, taxdb=taxdb))
+            except Exception:
+                taxlineage = ""
 
         # Only assign if confidence exceeds minimum
         if best_rank is not None and best_conf >= min_confidence:
@@ -161,6 +214,9 @@ def build_consensus_assignment(
                 "rank_taxid": best_taxid,
                 "confidence": round(best_conf, 4),
                 "methods": ",".join(sorted(set(best_methods))),
+                "taxlineage": taxlineage,
+                "Score": round(best_score, 4),
+                "level": best_rank,
             })
         else:
             # Unassigned — could flag for manual review
@@ -170,8 +226,12 @@ def build_consensus_assignment(
                 "rank_taxid": None,
                 "confidence": round(best_conf, 4) if best_conf > 0 else 0.0,
                 "methods": "",
+                "taxlineage": "",
+                "Score": 0.0,
+                "level": "unassigned",
             })
 
     return pl.DataFrame(rows) if rows else pl.DataFrame(
-        {"SequenceID": [], "rank": [], "rank_taxid": [], "confidence": [], "methods": []}
+        {"SequenceID": [], "rank": [], "rank_taxid": [], "confidence": [],
+         "methods": [], "taxlineage": [], "Score": [], "level": []}
     )

@@ -11,6 +11,16 @@ downloads:
   name: msl39v4
 ictv_url: https://ictv.global/vmr/current?fid=15873#block-teamplus-page-title
 sheet: 2
+# Taxonomy assignment method: "cascade" (default) or "consensus"
+method: cascade
+
+# Minimum confidence for consensus assignment (0.0-1.0)
+min_confidence: 0.5
+
+# Path to per-family derived thresholds (null = use global defaults)
+per_family_thresholds: null
+
+# Global fixed thresholds (used by cascade and as fallback for consensus)
 thresholds:
   tanis: 0.81
   tanig: 0.49

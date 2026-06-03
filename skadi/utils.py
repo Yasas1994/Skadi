@@ -181,7 +181,7 @@ def merge_intervals(
     intervals: NDArray,
     *,
     assume_sorted: bool = False,
-    merge_touches: bool = True,
+    merge_touches: bool = False,
     normalize: str = "swap",          # "swap" | "drop" | "error" for start>end
     keep_empty: bool = True,          # keep intervals where start==end
 ) -> NDArray:
@@ -194,7 +194,7 @@ def merge_intervals(
         Each row is [start, end]. May contain start >= end.
     assume_sorted : bool, default False
         If False, intervals are stably sorted by (start, end) before merging.
-    merge_touches : bool, default True
+    merge_touches : bool, default False
         If True, [a,b] and [b,c] are merged; otherwise kept separate.
     normalize : {"swap","drop","error"}, default "swap"
         Handling for rows with start > end:
@@ -267,11 +267,16 @@ def merge_intervals(
     return np.column_stack((merged_starts, merged_ends))
 
 
-def compute_cov(alns: List[pl.Series]) -> float:
-    """Compute query coverage using polars and numpy"""
-
+def compute_cov(alns: List[pl.Series], merge_touches: bool = True) -> float:
+    """Compute query coverage using polars and numpy.
+    
+    Args:
+        alns: List of [qstart_series, qend_series, qlen_series].
+        merge_touches: Whether to merge touching intervals. Default True
+            for backward compatibility with historical coverage calculation.
+    """
     t = np.stack((alns[0].to_numpy(), alns[1].to_numpy()), axis=1)
-    merged = merge_intervals(np.sort(t, axis=1)[np.argsort(t, axis=0)[:, 0]])
+    merged = merge_intervals(np.sort(t, axis=1)[np.argsort(t, axis=0)[:, 0]], merge_touches=merge_touches)
     return np.round(np.sum(np.diff(merged)) / alns[2][0], 2)
 
 
@@ -353,15 +358,19 @@ def ani_summary(infile: Union[str, StringIO],
                                                 has_header=True, 
                                                 separator="\t",
                                                 new_columns=["query", "query_version", "taxid", "gi" ])
-            # function(Taxon, level)
+            # Vectorized rank taxid lookups: pre-build mapping dicts
+            ttaxrank_map: Dict[int, int] = {}
+            qtaxrank_map: Dict[int, int] = {}
+            for tid in mmseqs_nuc["taxid"].unique().to_list():
+                ttaxrank_map[tid] = get_rank_taxid(taxon=Taxon(tid, taxdb=taxdb), rank=level)
+            for tid in qtaxinfo["taxid"].unique().to_list():
+                qtaxrank_map[tid] = get_rank_taxid(taxon=Taxon(tid, taxdb=taxdb), rank=level)
+
             mmseqs_nuc = mmseqs_nuc.with_columns(
-                pl.col("taxid").map_elements(lambda x : get_rank_taxid(taxon=Taxon(x, taxdb=taxdb), rank=level), return_dtype=pl.Int64).alias("ttaxrank")
+                pl.col("taxid").replace_strict(ttaxrank_map, default=-1).alias("ttaxrank")
             )
-            # qtaxinfo = qtaxinfo.with_columns(
-            #     pl.col("taxid").map_elements(lambda x : Taxon(x, taxdb=taxdb).alias("qtaxlineage"))
-            # )
             qtaxinfo = qtaxinfo.with_columns(
-                pl.col("taxid").map_elements(lambda x : get_rank_taxid(taxon=Taxon(x, taxdb=taxdb), rank=level), return_dtype=pl.Int64).alias("qtaxrank")
+                pl.col("taxid").replace_strict(qtaxrank_map, default=-1).alias("qtaxrank")
             )
             # add qtaxonomic info
             
@@ -457,10 +466,10 @@ def trim_lineage(taxid: int,
 def get_taxid2taxon_map(
     df: pl.DataFrame, 
     taxdb: TaxDb
-) -> Dict[str, OrderedDict]:
-    tmap = dict()
-    for x in list(df["taxid"].unique()):
-        tmap[x] = Taxon(x, taxdb=taxdb).rank_taxid_dictionary
+) -> Dict[int, Dict[str, int]]:
+    """Build a vectorizable taxid → rank_taxid mapping dictionary."""
+    tmap: Dict[int, Dict[str, int]] = {}
+    for x in df["taxid"].unique().to_list():
         tmap[x] = Taxon(x, taxdb=taxdb).rank_taxid_dictionary
     return tmap
 
@@ -508,13 +517,19 @@ def cal_axi(
             )
     prefilt = set(df["seqid"].unique())
     postfilt = set(tmp.filter(pl.col(tkind) >= threshold)["seqid"].unique())
+    # Vectorized taxlineage lookup
+    rank_taxids = tmp.sort(tkind).filter(pl.col(tkind) >= threshold)[rank].unique().to_list()
+    lineage_map: Dict[int, str] = {}
+    for tid in rank_taxids:
+        try:
+            lineage_map[tid] = str(Taxon(tid, taxdb=taxdb))
+        except Exception:
+            lineage_map[tid] = ""
     tmp2 = (
         tmp.sort(tkind)
         .filter(pl.col(tkind) >= threshold)
         .with_columns(
-            pl.col(rank)
-            .map_elements(lambda x: str(Taxon(x, taxdb=taxdb)), return_dtype=pl.String)
-            .alias("taxlineage")
+            pl.col(rank).replace_strict(lineage_map, default="").alias("taxlineage")
         )
         .with_columns(level=pl.lit(rank))
     )
@@ -580,13 +595,18 @@ def axi_summary(
         schema_overrides={"start": pl.Int64, "end": pl.Int64, "score": pl.Float64},
     )
 
+    # Vectorized protein ID extraction from GFF attributes
+    # Format: "ID=seqid_123;..." → extract "_123"
     gff_df = gff_df.with_columns(
         (
             pl.col("seqid")
-            + pl.col("attributes").map_elements(
-                lambda x: f'_{x.split(";")[0].strip("ID=").split("_")[-1]}',
-                return_dtype=pl.String,
-            )
+            + pl.col("attributes")
+            .str.split(";")
+            .list.get(0)
+            .str.strip_prefix("ID=")
+            .str.split("_")
+            .list.get(-1)
+            .map_elements(lambda x: f"_{x}", return_dtype=pl.String)
         ).alias("query")
     )
     gff_df = gff_df.join(seqleninfo, on="seqid", how="inner")
@@ -611,48 +631,25 @@ def axi_summary(
     mmseqs_axi = mmseqs_axi.with_columns(pl.col("taxid").fill_null(1))
     mmseqs_axi = mmseqs_axi.with_columns(pl.col("alnlen").fill_null(0))
 
+    # Vectorized trim_lineage: build lookup dict and replace
+    trim_map: Dict[int, int] = {}
+    for tid in mmseqs_axi["taxid"].unique().to_list():
+        trim_map[tid] = trim_lineage(tid, taxdb=taxdb)
     mmseqs_axi = mmseqs_axi.with_columns(
-        pl.col("taxid").map_elements(
-            lambda x: trim_lineage(x, taxdb=taxdb), return_dtype=pl.Int64
-        )
+        pl.col("taxid").replace_strict(trim_map, default=-1).alias("taxid")
     )
+
     taxonmap = get_taxid2taxon_map(mmseqs_axi, taxdb=taxdb)
 
-    mmseqs_axi = mmseqs_axi.with_columns(
-        pl.col("taxid")
-        .map_elements(lambda x: taxonmap[x].get("species", -1), return_dtype=pl.Int64)
-        .alias("species")
-    )
-    mmseqs_axi = mmseqs_axi.with_columns(
-        pl.col("taxid")
-        .map_elements(lambda x: taxonmap[x].get("genus", -1), return_dtype=pl.Int64)
-        .alias("genus")
-    )
-    mmseqs_axi = mmseqs_axi.with_columns(
-        pl.col("taxid")
-        .map_elements(lambda x: taxonmap[x].get("family", -1), return_dtype=pl.Int64)
-        .alias("family")
-    )
-    mmseqs_axi = mmseqs_axi.with_columns(
-        pl.col("taxid")
-        .map_elements(lambda x: taxonmap[x].get("order", -1), return_dtype=pl.Int64)
-        .alias("order")
-    )
-    mmseqs_axi = mmseqs_axi.with_columns(
-        pl.col("taxid")
-        .map_elements(lambda x: taxonmap[x].get("class", -1), return_dtype=pl.Int64)
-        .alias("class")
-    )
-    mmseqs_axi = mmseqs_axi.with_columns(
-        pl.col("taxid")
-        .map_elements(lambda x: taxonmap[x].get("phylum", -1), return_dtype=pl.Int64)
-        .alias("phylum")
-    )
-    mmseqs_axi = mmseqs_axi.with_columns(
-        pl.col("taxid")
-        .map_elements(lambda x: taxonmap[x].get("kingdom", -1), return_dtype=pl.Int64)
-        .alias("kingdom")
-    )
+    # Vectorized rank lookups: build one DataFrame with all rank columns, then join
+    unique_taxids = mmseqs_axi["taxid"].unique().to_list()
+    rank_rows = []
+    RANK_COLS = ["species", "genus", "family", "order", "class", "phylum", "kingdom"]
+    for tid in unique_taxids:
+        rd = taxonmap.get(tid, {})
+        rank_rows.append({"taxid": tid, **{r: rd.get(r, -1) for r in RANK_COLS}})
+    rank_df = pl.DataFrame(rank_rows)
+    mmseqs_axi = mmseqs_axi.join(rank_df, on="taxid", how="left")
     seqid2qlens = mmseqs_axi.group_by("seqid").agg(
         pl.col("qlen").unique().alias("qlens")
     )
@@ -669,13 +666,19 @@ def axi_summary(
             #     pl.col("taxid").map_elements(lambda x : Taxon(x, taxdb=taxdb).alias("qlineage"))
             # )
             # if a taxrank is un-available, get the next higher rank 
+            # Vectorized rank taxid lookups for AXI
+            qtaxrank_map_axi: Dict[int, int] = {}
+            ttaxrank_map_axi: Dict[int, int] = {}
+            for tid in qtaxinfo["taxid"].unique().to_list():
+                qtaxrank_map_axi[tid] = get_rank_taxid(taxon=Taxon(tid, taxdb=taxdb), rank=level)
+            for tid in mmseqs_axi["taxid"].unique().to_list():
+                ttaxrank_map_axi[tid] = get_rank_taxid(taxon=Taxon(tid, taxdb=taxdb), rank=level)
+
             qtaxinfo = qtaxinfo.with_columns(
-                pl.col("taxid").map_elements(lambda x : get_rank_taxid(taxon=Taxon(x, taxdb=taxdb), rank=level), 
-                                             return_dtype=pl.Int64).alias("qtaxrank")
+                pl.col("taxid").replace_strict(qtaxrank_map_axi, default=-1).alias("qtaxrank")
             )
             mmseqs_axi = mmseqs_axi.with_columns(
-                pl.col("taxid").map_elements(lambda x : get_rank_taxid(taxon=Taxon(x, taxdb=taxdb), rank=level),
-                                              return_dtype=pl.Int64).alias("ttaxrank")
+                pl.col("taxid").replace_strict(ttaxrank_map_axi, default=-1).alias("ttaxrank")
             )
             # add qtaxonomic info
             # filter level

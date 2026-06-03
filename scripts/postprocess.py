@@ -6,23 +6,20 @@ postprocesses genome.m8, prot_dfein.m8 and prof_dfile.m8 files by calculating
 ani, aai, and api and summarizes the summarizes the taxonomy predictions
 to a single .tsv file
 
+Supports two assignment methods:
+  - cascade (default): ANI → AAI → API tiered fallback
+  - consensus: weighted voting across all three methods
+
 """
 
+from typing import Dict, List, Optional
 import polars as pl
 import click
 from pathlib import Path
 from taxopy.core import TaxDb
 from taxopy import Taxon
 from skadi.color_logger import logger
-
-
-def trim_lineage(taxid: int, taxdb: TaxDb, taxomic_level: str = "species") -> int:
-    # trims lineages to the level
-    taxon = Taxon(taxid, taxdb)
-    trimmed = taxon.rank_taxid_dictionary.get(taxomic_level)
-    if trimmed is None:
-        return taxid
-    return trimmed
+from skadi.consensus import build_consensus_assignment
 
 
 keys = [
@@ -153,13 +150,166 @@ n = [
 ]
 
 
+def _build_taxon_lookup(taxdb: TaxDb, taxids: List[int]) -> Dict[int, Taxon]:
+    """Pre-build Taxon objects for a list of taxids."""
+    return {tid: Taxon(tid, taxdb=taxdb) for tid in set(taxids) if tid}
+
+
+def _build_rank_lookup(taxdb: TaxDb, taxids: List[int], rank: str) -> Dict[int, int]:
+    """Pre-build taxid → rank_taxid mapping for vectorized operations."""
+    lookup = {}
+    for tid in set(taxids):
+        if tid:
+            try:
+                lookup[tid] = Taxon(tid, taxdb=taxdb).rank_taxid_dictionary.get(rank, 0)
+            except Exception:
+                lookup[tid] = 0
+    return lookup
+
+
+def _build_lineage_lookup(taxdb: TaxDb, taxids: List[int]) -> Dict[int, str]:
+    """Pre-build taxid → lineage string mapping for vectorized operations."""
+    lookup = {}
+    for tid in set(taxids):
+        if tid:
+            try:
+                lookup[tid] = str(Taxon(tid, taxdb=taxdb))
+            except Exception:
+                lookup[tid] = ""
+    return lookup
+
+
+def _apply_taxon_columns(df: pl.DataFrame, taxdb: TaxDb, rank: str) -> pl.DataFrame:
+    """Vectorized addition of rank_taxid and taxlineage columns."""
+    unique_taxids = [t for t in df["taxid"].unique().to_list() if t is not None]
+    rank_map = _build_rank_lookup(taxdb, unique_taxids, rank)
+    lineage_map = _build_lineage_lookup(taxdb, unique_taxids)
+    return df.with_columns(
+        pl.col("taxid").replace_strict(rank_map, default=0).alias("rank_taxid"),
+        pl.col("taxid").replace_strict(lineage_map, default="").alias("taxlineage"),
+        pl.lit(rank).alias("level"),
+    )
+
+
+def _run_cascade(
+    db_dir: str, nuc: str, prot: str, prof: str, taxdb: TaxDb, kwargs: dict
+) -> List[pl.DataFrame]:
+    """Original ANI → AAI → API cascade logic."""
+    dfs = []
+    matched = []
+    try:
+        nuc_df = pl.read_csv(nuc, separator="\t")
+        nuc_df = nuc_df.with_columns(pl.lit("ani").alias("Method")).rename(
+            {"ani": "Score", "qlen": "Seqlen", "query": "SequenceID"}
+        )
+
+        df_species = nuc_df.filter(pl.col("tani") >= kwargs["tanis"])
+        df_species = _apply_taxon_columns(df_species, taxdb, "species")
+
+        df_genus = nuc_df.filter(
+            (pl.col("tani") >= kwargs["tanig"]) & (pl.col("tani") < kwargs["tanis"])
+        )
+        df_genus = _apply_taxon_columns(df_genus, taxdb, "genus")
+
+        nuc_df = pl.concat([df_species, df_genus])
+        matched = nuc_df["SequenceID"].to_list()
+        if not nuc_df.is_empty():
+            dfs.append(nuc_df)
+    except (pl.exceptions.ComputeError, FileNotFoundError, ValueError) as e:
+        logger.info(f"nucleotide level results were not added because {e}")
+
+    try:
+        prot_df = pl.read_csv(prot, separator="\t")
+        prot_df = prot_df.with_columns(pl.lit("aai").alias("Method")).rename(
+            {"taai": "Score", "qseqlen": "Seqlen", "seqid": "SequenceID"}
+        )
+        prot_df = prot_df.filter(~pl.col("SequenceID").is_in(matched))
+        matched.extend(prot_df["SequenceID"].to_list())
+        if not prot_df.is_empty():
+            dfs.append(prot_df)
+    except (pl.exceptions.ComputeError, FileNotFoundError, ValueError):
+        logger.info("no prot level results to merge")
+
+    try:
+        prof_df = pl.read_csv(prof, separator="\t")
+        prof_df = prof_df.with_columns(pl.lit("api").alias("Method")).rename(
+            {"tapi": "Score", "qseqlen": "Seqlen", "seqid": "SequenceID"}
+        )
+        prof_df = prof_df.filter(~pl.col("SequenceID").is_in(matched))
+        matched.extend(prof_df["SequenceID"].to_list())
+        if not prof_df.is_empty():
+            dfs.append(prof_df)
+    except (pl.exceptions.ComputeError, FileNotFoundError, ValueError):
+        logger.info("no profile level results to merge")
+
+    return dfs
+
+
+def _run_consensus(
+    db_dir: str, nuc: str, prot: str, prof: str, taxdb: TaxDb, kwargs: dict
+) -> List[pl.DataFrame]:
+    """Consensus-based taxonomy assignment using weighted voting."""
+    ani_df = None
+    aai_df = None
+    api_df = None
+
+    try:
+        ani_df = pl.read_csv(nuc, separator="\t")
+    except (pl.exceptions.ComputeError, FileNotFoundError, ValueError) as e:
+        logger.info(f"nucleotide level results not available: {e}")
+
+    try:
+        aai_df = pl.read_csv(prot, separator="\t")
+    except (pl.exceptions.ComputeError, FileNotFoundError, ValueError) as e:
+        logger.info(f"protein level results not available: {e}")
+
+    try:
+        api_df = pl.read_csv(prof, separator="\t")
+    except (pl.exceptions.ComputeError, FileNotFoundError, ValueError) as e:
+        logger.info(f"profile level results not available: {e}")
+
+    consensus = build_consensus_assignment(
+        ani_df=ani_df,
+        aai_df=aai_df,
+        api_df=api_df,
+        thresholds=kwargs,
+        taxdb=taxdb,
+        min_confidence=kwargs.get("min_confidence", 0.5),
+    )
+
+    if consensus.is_empty():
+        return []
+
+    # Convert consensus output to the format expected by downstream processing
+    # Add Method column based on methods used
+    consensus = consensus.with_columns(
+        pl.col("methods").alias("Method"),
+        pl.col("Score").alias("Score"),
+        pl.col("SequenceID").alias("SequenceID"),
+    )
+
+    # For unassigned, we still want them in the output
+    return [consensus]
+
+
 @click.command(context_settings=dict(help_option_names=["-h", "--help"]))
 @click.argument("db_dir", type=click.Path(exists=True, file_okay=False, path_type=str))
 @click.argument("nuc", type=click.Path(exists=True, dir_okay=False, path_type=str))
 @click.argument("prot", type=click.Path(exists=True, dir_okay=False, path_type=str))
 @click.argument("prof", type=click.Path(exists=True, dir_okay=False, path_type=str))
 @click.argument("outfile", type=click.Path(dir_okay=False, path_type=str))
-# These were argv[6] and argv[7] but “should be moved to another place” → make them options:
+@click.option(
+    "--method",
+    type=click.Choice(["cascade", "consensus"], case_sensitive=False),
+    default="cascade",
+    help="Taxonomy assignment method: cascade (ANI→AAI→API tiered) or consensus (weighted voting).",
+)
+@click.option(
+    "--min-confidence",
+    type=float,
+    default=0.5,
+    help="Minimum confidence for consensus assignment (only used with --method consensus).",
+)
 @click.option(
     "--tapif",
     type=float,
@@ -251,110 +401,22 @@ n = [
     help="assign sequences above this taai threshold to genera",
     required=False,
 )
-def main(db_dir: str, nuc: str, prot: str, prof: str, outfile: str, **kwargs):
-    # fasta = pyfastx.Fasta(FASTA)
-    # headers = list(fasta.keys())
-    # load the tax db
+def main(db_dir: str, nuc: str, prot: str, prof: str, outfile: str, method: str, **kwargs):
     taxdb = TaxDb(
         nodes_dmp=f"{db_dir}/ictv-taxdump/nodes.dmp",
         names_dmp=f"{db_dir}/ictv-taxdump/names.dmp",
         merged_dmp=f"{db_dir}/ictv-taxdump/merged.dmp",
     )
 
-    def get_taxon(taxid: int) -> Taxon:
-        """Instantiate a Taxon using the global `taxdb`."""
-        return Taxon(taxid=taxid, taxdb=taxdb)
-
-    def get_rank_taxid(taxid: int, rank: str) -> int:
-        """Return the taxid that corresponds to *rank* (e.g. 'species', 'genus')."""
-        return get_taxon(taxid).rank_taxid_dictionary.get(rank, 0)
-
-    dfs = []
-    matched = []
-    try:
-        # ani based filtering
-        nuc_df = pl.read_csv(nuc, separator="\t")
-
-        nuc_df = nuc_df.with_columns(pl.lit("ani").alias("Method")).rename(
-            {"ani": "Score", "qlen": "Seqlen", "query": "SequenceID"}
-        )
-
-        df_species = nuc_df.filter(pl.col("tani") >= kwargs["tanis"]).with_columns(
-            # taxid of the species that this row belongs to
-            pl.col("taxid")
-            .map_elements(lambda x: get_rank_taxid(x, "species"))
-            .alias("rank_taxid"),
-            # full lineage (Taxon object)
-            pl.col("taxid")
-            .map_elements(lambda x: str(get_taxon(x)))
-            .alias("taxlineage"),
-            # level label
-            pl.lit("species").alias("level"),
-        )
-        df_genus = nuc_df.filter(
-            (pl.col("tani") >= kwargs["tanig"]) & (pl.col("tani") < kwargs["tanis"])
-        ).with_columns(
-            # taxid of the genus that this row belongs to
-            pl.col("taxid")
-            .map_elements(lambda x: get_rank_taxid(x, "genus"))
-            .alias("rank_taxid"),
-            # full lineage (Taxon object)
-            pl.col("taxid")
-            .map_elements(lambda x: str(get_taxon(x)))
-            .alias("taxlineage"),
-            # level label
-            pl.lit("genus").alias("level"),
-        )
-
-        # ------------------------------------------------------------------
-        # Concatenate the two result DataFrames
-        # ------------------------------------------------------------------
-        nuc_df = pl.concat([df_species, df_genus])
-        matched = nuc_df["SequenceID"].to_list()
-        if not nuc_df.is_empty():
-            dfs.append(nuc_df)
-    except (pl.exceptions.ComputeError, FileNotFoundError, ValueError) as e:
-        logger.info(f"nucleotide level results were not added because {e}")
-
-    try:
-        # aai based filtering
-        prot_df = pl.read_csv(prot, separator="\t")
-
-        prot_df = prot_df.with_columns(pl.lit("aai").alias("Method")).rename(
-            {"taai": "Score", "qseqlen": "Seqlen", "seqid": "SequenceID"}
-        )
-        prot_df = prot_df.filter(~pl.col("SequenceID").is_in(matched))
-        matched.extend(prot_df["SequenceID"].to_list())
-        if not prot_df.is_empty():
-            dfs.append(prot_df)
-
-    except (pl.exceptions.ComputeError, FileNotFoundError, ValueError):
-        logger.info("no prot level results to merge")
-
-    try:
-        # api based filtering
-        prof_df = pl.read_csv(prof, separator="\t")
-        prof_df = prof_df.with_columns(pl.lit("api").alias("Method")).rename(
-            {"tapi": "Score", "qseqlen": "Seqlen", "seqid": "SequenceID"}
-        )
-
-        prof_df = prof_df.filter(~pl.col("SequenceID").is_in(matched))
-        matched.extend(prof_df["SequenceID"].to_list())
-        if not prof_df.is_empty():
-            dfs.append(prof_df)
-
-    except (pl.exceptions.ComputeError, FileNotFoundError, ValueError):
-        logger.info("no profile level results to merge")
-
-    # write a ictv taxonomy challange formatted file - this will be removed later
+    if method == "consensus":
+        dfs = _run_consensus(db_dir, nuc, prot, prof, taxdb, kwargs)
+    else:
+        dfs = _run_cascade(db_dir, nuc, prot, prof, taxdb, kwargs)
 
     if len(dfs) > 0:
-        # logger.info(nuc_df.columns, keys)
         pl.concat([i.with_columns(*n).select(keys) for i in dfs]).write_csv(
             outfile.rstrip(".tsv") + "_ictv.csv", separator=","
         )
-
-        # write a file with more information
         pl.concat([i.with_columns(*n).select(keys_full) for i in dfs]).write_csv(
             outfile, separator="\t"
         )
@@ -364,4 +426,3 @@ def main(db_dir: str, nuc: str, prot: str, prof: str, outfile: str, **kwargs):
 
 if __name__ == "__main__":
     main()
-

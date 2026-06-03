@@ -9,6 +9,8 @@ AAI_PARAMS = config["aai"]
 ANI_PARAMS = config["ani"]
 LEVEOUT_LEVEL = config["level"]
 BATCH = config["batch"]
+METHOD = config.get("method", "cascade")
+MIN_CONFIDENCE = config.get("min_confidence", "0.5")
 
 # Define database paths
 PROTDB = f"{DBDIR}/VMR_latest/mmseqs_proteins/mmseqs_proteins"
@@ -140,7 +142,11 @@ rule summarize:
         ani=ANI_PARAMS,
         api=API_PARAMS,
         aai=AAI_PARAMS,
+        method=METHOD,
+        min_confidence=MIN_CONFIDENCE,
     shell:
         """
-        postprocess.py {input.DBDIR} {input.NUC} {input.PROT} {input.PROF} {output} {params.ani} {params.aai} {params.api} &> {log}
+        postprocess.py {input.DBDIR} {input.NUC} {input.PROT} {input.PROF} {output} \
+            --method {params.method} --min-confidence {params.min_confidence} \
+            {params.ani} {params.aai} {params.api} &> {log}
         """
