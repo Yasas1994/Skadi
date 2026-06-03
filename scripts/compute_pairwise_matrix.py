@@ -244,6 +244,100 @@ def compute_aai_scores(
     return df
 
 
+def compute_api_scores(
+    prof_m8_path: Path,
+    db_dir: Path,
+    out_path: Path,
+    chunksize: int = 1_000_000,
+) -> pl.DataFrame:
+    """Compute API scores from profile search m8 file.
+
+    Profile search uses clustered protein profiles (mmseqs_pprofiles) instead of
+    direct protein-protein alignment. The score computation is identical to AAI:
+    tAPI = API * qcov where qcov = unique_hit_proteins / total_query_proteins.
+
+    Args:
+        prof_m8_path: Path to profile search m8 file.
+        db_dir: Database directory (for genome2protein mapping).
+        out_path: Output parquet path.
+        chunksize: Number of rows to process at a time.
+
+    Returns:
+        DataFrame with columns [seqid, taxid, api, qcov, tapi, hit_proteins, total_proteins].
+    """
+    logger.info("Computing API scores from %s...", prof_m8_path)
+
+    # Load protein counts per genome (same as AAI)
+    g2p_path = db_dir / "VMR_latest" / "genome2protein"
+    if not g2p_path.exists():
+        logger.error("genome2protein file not found: %s", g2p_path)
+        raise FileNotFoundError(g2p_path)
+
+    g2p = pl.read_csv(g2p_path, separator="\t")
+    protein_counts = g2p.group_by("genome_id").len().rename({"len": "total_proteins"})
+    logger.info("Loaded protein counts for %d genomes", len(protein_counts))
+
+    # Process m8 in chunks using pandas for chunked reading
+    import pandas as pd
+
+    header = [
+        "query", "target", "theader", "fident", "qlen", "tlen", "alnlen",
+        "mismatch", "gapopen", "qstart", "qend", "tstart", "tend",
+        "evalue", "bits", "taxid", "taxname", "taxlineage",
+    ]
+
+    all_scores = []
+    chunk_iter = pd.read_csv(
+        prof_m8_path,
+        sep="\t",
+        header=None,
+        names=header,
+        chunksize=chunksize,
+    )
+
+    for i, pd_chunk in enumerate(chunk_iter):
+        chunk = pl.from_pandas(pd_chunk)
+
+        # Extract genome ID from query protein ID (format: genome_acc_ORFnum)
+        chunk = chunk.with_columns(
+            pl.col("query").str.extract(r"^(.+)_[0-9]+$", 1).alias("seqid")
+        )
+
+        # Join total proteins
+        chunk = chunk.join(protein_counts, left_on="seqid", right_on="genome_id", how="left")
+
+        # Compute API metrics per (seqid, taxid)
+        scores = chunk.group_by(["seqid", "taxid"]).agg(
+            ((pl.col("fident") * pl.col("alnlen")).sum() / pl.col("alnlen").sum())
+            .round(3).alias("api"),
+            pl.col("query").n_unique().alias("hit_proteins"),
+            pl.first("total_proteins").alias("total_proteins"),
+        )
+
+        # Compute qcov and tapi
+        scores = scores.with_columns(
+            (pl.col("hit_proteins") / pl.col("total_proteins")).round(3).alias("qcov"),
+        ).with_columns(
+            (pl.col("api") * pl.col("qcov")).round(3).alias("tapi"),
+        )
+
+        all_scores.append(scores)
+        if (i + 1) % 10 == 0:
+            logger.info("  Processed %d chunks...", i + 1)
+
+    if all_scores:
+        df = pl.concat(all_scores)
+    else:
+        df = pl.DataFrame({
+            "seqid": [], "taxid": [], "api": [], "qcov": [], "tapi": [],
+            "hit_proteins": [], "total_proteins": [],
+        })
+
+    df.write_parquet(out_path)
+    logger.info("Saved API scores to %s (%d pairs)", out_path, len(df))
+    return df
+
+
 def load_taxonomy(db_dir: Path) -> Tuple[Dict, Dict]:
     """Load taxonomy database and build name->taxid mapping.
 
@@ -872,10 +966,38 @@ def main() -> None:
             )
             all_thresholds["aai"] = aai_thresholds
 
+        # Step 7: Compute API scores if profile m8 provided
+        api_path = args.outdir / "pairs_api.parquet"
+        if args.compute_api and args.prof_m8:
+            if not api_path.exists():
+                compute_api_scores(args.prof_m8, args.db_dir, api_path)
+            else:
+                logger.info("Using existing API scores: %s", api_path)
+
+        # Step 8: Label API pairs by taxonomy
+        api_labeled_path = args.outdir / "pairs_api_labeled.parquet"
+        if args.compute_api and args.prof_m8 and not api_labeled_path.exists():
+            taxdb, name2taxid = load_taxonomy(args.db_dir)
+            acc_to_ranks = build_accession_taxonomy_map(args.db_dir, taxdb, name2taxid)
+            api_df = pl.read_parquet(api_path)
+            # Rename seqid to query for consistency with label_pairs
+            api_df = api_df.rename({"seqid": "query"})
+            label_pairs(api_df, acc_to_ranks, api_labeled_path)
+
         # API thresholds: family + order + class + phylum + kingdom
-        # TODO: Implement when profile search data is available
-        if args.prof_m8:
-            logger.warning("API threshold derivation not yet implemented")
+        if api_labeled_path.exists():
+            logger.info("Deriving API thresholds (family, order, class, phylum, kingdom)...")
+            api_df = pl.read_parquet(api_labeled_path)
+            api_thresholds = derive_thresholds_for_method(
+                api_df,
+                score_col="tapi",
+                target_ranks=["family", "order", "class", "phylum", "kingdom"],
+                method=args.threshold_method,
+                percentile=args.percentile,
+                min_pairs=args.min_pairs_per_group,
+                taxdb=taxdb,
+            )
+            all_thresholds["api"] = api_thresholds
 
         # Apply threshold correction and caps
         if args.threshold_correction != 1.0 or args.max_threshold is not None:
