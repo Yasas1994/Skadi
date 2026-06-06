@@ -1,7 +1,7 @@
 <!-- ```{figure} ./_static/figures/skadi_logo.png
 ``` -->
 
-# Virus contig annotation tool
+# SKADI
 
 **SKADI: Sequence-based Knowledgebase for Annotation, Detection, and Identification** is a simple, homology-based application designed to:
 
@@ -15,11 +15,12 @@
 :caption: Contents
 
 installation
-running-skadi-contigs
-running-skadi-reads
+cluster-setup
+running-vcat-contigs
+running-vcat-reads
 annotation-pipeline
 changelog
 extras-and-citation
 ```
 
-click [here](https://github.com/Yasas1994/skadi.git) to go back to the source code.
+Click [here](https://github.com/Yasas1994/skadi.git) to go back to the source code.

@@ -1,7 +1,7 @@
-## Annotating reads
+# Annotating reads
 
-This workflow can be used to map reads to ICTV geomes. This might come in handy in instances where the virus abundance is
-extreamly low (clinical samples).
+This workflow can be used to map reads to ICTV genomes. This might come in handy in instances where the virus abundance is
+extremely low (e.g., clinical samples).
 
 
 ```bash
@@ -44,7 +44,7 @@ Options:
   -h, --help           Show this message and exit.
   ```
 
-**Results**
+## Results
 
 Results can be found in the `results` directory within the output directory. A typical layout is:
 
@@ -59,4 +59,3 @@ Results can be found in the `results` directory within the output directory. A t
 - `input.pileup.tsv` contains pileup output.
 - `input.sorted.bam` sorted bam file.
 - `input.sorted.bam.bai` index of the sorted bam file.
-

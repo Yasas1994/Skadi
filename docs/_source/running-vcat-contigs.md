@@ -1,15 +1,15 @@
-## Annotating contigs
+# Annotating contigs
 
 This workflow can be used to transfer taxonomic annotations to virus contigs. The workflow is written in 
-Snakemake. So, if you interupt it in the middle you can start again from where you left off. following command
+Snakemake. So, if you interrupt it in the middle you can start again from where you left off. The following command
 runs skadi with default parameters.
 
 ```bash
 skadi contigs -i <input>.fasta -o outdir
 ```
-**Advance options**
+## Advanced options
 
-However, you can customize skadi with following cmd line options. For example, consider setting `--nuc-search mmseqs_tblastx`
+However, you can customize skadi with the following command line options. For example, consider setting `--nuc-search mmseqs_tblastx`
 for more sensitive tANI calculations.
 
 ```bash
@@ -18,13 +18,13 @@ Options:
   -o, --output PATH               dir to store skadi results  [required]
   -d, --database PATH             dir to skadi database
   --nuc_search [blastn|tbalstx|mmseqs_blastn|mmseqs_tblastx]
-                                  nucelotide search algorithm (blastn,
+                                  nucleotide search algorithm (blastn,
                                   tblastx, mmseqs_blastn, mmseqs_tblastx).
                                   [default: mmseqs_blastn]
   --prot_search [blast|diamond|mmseqs]
                                   protein search algorithm (blast, diamond,
                                   mmseqs).  [default: mmseqs]
-  --prof_search [mmseqs|hmmer]    nucelotide seach algorithm (mmseqs, hmmer).
+  --prof_search [mmseqs|hmmer]    profile search algorithm (mmseqs, hmmer).
                                   [default: mmseqs]
   -j, --jobs INTEGER              use at most this many jobs in parallel (see
                                   cluster submission for more details).
@@ -51,9 +51,9 @@ Options:
                                   to phyla  [default: 0.3]
   --taaik FLOAT                   assign sequences above this taai threshold
                                   to kingdoms  [default: 0.3]
-  --tanis FLOAT                   assign sequences above this taai threshold
+  --tanis FLOAT                   assign sequences above this tani threshold
                                   to species  [default: 0.81]
-  --tanig FLOAT                   assign sequences above this taai threshold
+  --tanig FLOAT                   assign sequences above this tani threshold
                                   to genera  [default: 0.49]
   --batch INTEGER                 number of records to process at a time
                                   [default: 5000]
@@ -61,7 +61,7 @@ Options:
   -h, --help                      Show this message and exit.
 ```
 
-**Results**
+## Results
 
 Results can be found in the `results` directory within the output directory. A typical layout is:
 
@@ -84,17 +84,17 @@ outdir/
 │   └── input_fasta.tsv
 └── tmp
 ```
-- `results/inpuy_fasta.tsv` contains the putative taxonomic annotations for the input contigs.
+- `results/input_fasta.tsv` contains the putative taxonomic annotations for the input contigs.
 - `nuc/input_genome_ani.tsv` contains all the tANI calculations before applying taxon-level tANI cutoffs.
 - `prot/input_fasta_prot_aai.tsv` contains all txAAI calculations before applying taxon-level txAAI cutoffs.
 - `prof/input_fasta_prof_api.tsv` contains all txAPI calculations before applying taxon-level txAPI cutoffs.
-- To know more about tANI, txAAI and txAPI, refer {doc}`annotation-pipeline`
+- To know more about tANI, txAAI and txAPI, refer to {doc}`annotation-pipeline`
 
 
 ```{note}
 As a rough guideline, it takes around **4 hours** to run skadi on the ICTV Taxonomy challenge dataset on a typical laptop.
 ```
-### SKADI output
+## SKADI output
 
 skadi reports the predicted taxonomic lineage for each query sequence in a structured results table. Each row corresponds to a single sequence and lists the assigned taxa across all ICTV hierarchical ranks, from realm down to species, whenever a match is detected.
 
@@ -130,22 +130,21 @@ CASDWV010000512,3611,1.0,ani,Riboviria,,,,Orthornavirae,,,,Lenarviricota,,,,Levi
 ```
 
 
-### Utility workflows
----
+## Utility workflows
 
-#### Calculate txAAI of query contigs to ICTV genomes
+### Calculate txAAI of query contigs to ICTV genomes
 
 ```bash
 skadi utils aai [OPTIONS] -i contigs.m8 -g contigs.gff -d [DBDIR]
 ```
 
-#### Calculate tANI of query contigs to ICTV genomes
+### Calculate tANI of query contigs to ICTV genomes
 
 ```bash
 skadi utils ani [OPTIONS] -i contigs.m8
 ```
 
-#### Visualization of genome comparisons (coming soon)
+### Visualization of genome comparisons (coming soon)
 
 Create genome comparison plots (query sequence vs highly similar ICTV genomes):
 
@@ -153,13 +152,13 @@ Create genome comparison plots (query sequence vs highly similar ICTV genomes):
 skadi utils visualize --ani --taxa <taxname> -i contigs.m8 -o outdir
 ```
 
-#### Phage contig annotation plots (coming soon)
+### Phage contig annotation plots (coming soon)
 
 ```bash
 skadi utils visualize --phrogs -i contigs.fasta -o outdir
 ```
 
-#### Provirus identification (coming soon)
+### Provirus identification (coming soon)
 
 ```bash
 skadi utils provirus -i contigs.fasta -o outdir

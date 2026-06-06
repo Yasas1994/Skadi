@@ -4,6 +4,8 @@
 
 ### Contig length distribution of your input contigs
 
+This snippet uses [seqkit](https://bioinf.shenwei.me/seqkit/) to extract sequence lengths, then pipes them to a histogram. The `hist` command is available from the [tqdm](https://github.com/tqdm/tqdm) Python package (`pip install tqdm`) or similar histogram utilities.
+
 ```bash
 seqkit fx2tab -lg input.fasta \
   | awk -F "\t" '{print $4}' \

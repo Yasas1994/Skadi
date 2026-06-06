@@ -1,18 +1,18 @@
-## Installation
+# Installation
 
 
-currently you can install the development version of skadi with following steps.
+Currently, you can install the development version of skadi with the following steps.
 
 
-#### Installing with conda/mamba
-clone the git repositoty and use the environment.yaml file to create a conda environemnt.
-alternatively you can also use pixi. Then, install the skadi python package into the conda 
+### Installing with conda/mamba
+Clone the git repository and use the `environment.yml` file to create a conda environment.
+Alternatively, you can also use pixi. Then, install the skadi python package into the conda 
 environment you just created.
 
 ```bash
 git clone https://github.com/Yasas1994/skadi.git
 cd skadi
-mamba create -f environment.yml
+mamba env create -f environment.yml
 mamba activate skadi
 pip install .
 skadi --help
@@ -20,8 +20,8 @@ skadi --help
 
 
 
-#### Running skadi with singularity
-clone the git reposity and used the Apptainer definition file to build a singularity container.
+### Running skadi with Apptainer/Singularity
+Clone the git repository and use the Apptainer definition file to build a Singularity/Apptainer container.
 
 ```bash
 git clone https://github.com/Yasas1994/skadi.git
@@ -31,7 +31,7 @@ apptainer run skadi.sif skadi --help
 ```
 
 
-if everything goes soothly, you should see skadi help on the the terminal.
+If everything goes smoothly, you should see skadi help on the terminal.
 
 ```text
 Usage: skadi [OPTIONS] COMMAND [ARGS]...
@@ -53,17 +53,17 @@ Commands:
 ```
 
 
-#### Downloading pre-built databases
+### Downloading pre-built databases
 
 You can download pre-built databases instead of building from scratch. 
-Currently, msl39v and masl40v1 are available to download
+Currently, msl39v4, msl40v2, and msl41v1 are available to download.
 
 ```bash
 
-skadi downloaddb --dbversion masl40v1 -d <path-to-save-the-database> --cores 1
+skadi downloaddb --dbversion msl41v1 -d <path-to-save-the-database> --cores 1
 ```
 
-optionally, you can also build it yourself with the following command.
+Optionally, you can also build it yourself with the following command.
 
 ```bash
 skadi preparedb -d <path-to-save-the-database>
