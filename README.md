@@ -11,7 +11,7 @@
 # SKADI: Sequence-based Knowledgebase for Annotation, Detection, and Identification
 
 > [!NOTE] 
-> SKADI [documentation](https://skadi.readthedocs.io/en/latest/
+> SKADI [documentation](https://skadi-docs.readthedocs.io/en/latest
 ) is now online! 
 
 ### Changelog
